@@ -1,0 +1,5 @@
+2024-09-09T19:49:56.540Z [INFO]: Wallet generated: 4mhoutzZevFESpHHjNpJrPCd48GWFFtoTNUqUQPBQGDG
+2024-09-09T19:49:56.542Z [INFO]: New wallet created: 4mhoutzZevFESpHHjNpJrPCd48GWFFtoTNUqUQPBQGDG
+2024-09-09T19:50:39.711Z [ERROR]: Error fetching balance for 4mhoutzZevFESpHHjNpJrPCd48GWFFtoTNUqUQPBQGDG: failed to get balance of account 4mhoutzZevFESpHHjNpJrPCd48GWFFtoTNUqUQPBQGDG: TypeError: fetch failed
+2024-09-09T19:52:45.168Z [INFO]: Wallet generated: 6LgY22MQgDKYGNrtxuahhVweYvsXsjZ2fkMWTygGgzNM
+2024-09-09T19:52:45.169Z [INFO]: New wallet created: 6LgY22MQgDKYGNrtxuahhVweYvsXsjZ2fkMWTygGgzNM
