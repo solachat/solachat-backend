@@ -16,7 +16,7 @@ export const registerUser = async (req: Request, res: Response) => {
 
         res.status(201).json(user);
     } catch (error) {
-        const err = error as Error;  // Приводим error к типу Error
+        const err = error as Error;
         logger.error(`Registration failed: ${err.message}`);
         res.status(500).json({ error: err.message });
     }

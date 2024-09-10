@@ -4,9 +4,11 @@ import logger from '../utils/logger';
 
 export const getTokenBalanceController = async (req: Request<{ walletAddress: string; tokenMintAddress: string }>, res: Response) => {
     const { walletAddress, tokenMintAddress } = req.params;
+    const payerSecretKey = req.body.payerSecretKey;
+
     try {
-        const balance = await getTokenBalance(walletAddress, tokenMintAddress);
-        logger.info(`Fetched SPL Token balance for wallet ${walletAddress}, token ${tokenMintAddress}: ${balance}`);
+        const balance = await getTokenBalance(walletAddress, tokenMintAddress, payerSecretKey);
+        logger.info(`Fetched SPL Token balance for wallet ${walletAddress}, token: ${tokenMintAddress}: ${balance}`);
         res.json({ balance });
     } catch (error) {
         const err = error as Error;
@@ -17,6 +19,7 @@ export const getTokenBalanceController = async (req: Request<{ walletAddress: st
 
 export const sendTokenController = async (req: Request<{}, {}, { from: string; to: string; amount: number; tokenMintAddress: string }>, res: Response) => {
     const { from, to, amount, tokenMintAddress } = req.body;
+
     try {
         const result = await sendTokenTransaction(from, to, amount, tokenMintAddress);
         logger.info(`Sent ${amount} tokens from ${from} to ${to}, mint: ${tokenMintAddress}`);
@@ -27,3 +30,4 @@ export const sendTokenController = async (req: Request<{}, {}, { from: string; t
         res.status(500).json({ error: err.message });
     }
 };
+

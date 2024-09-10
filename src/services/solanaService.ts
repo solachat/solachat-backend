@@ -23,15 +23,16 @@ export const getSolanaBalance = async (address: string) => {
     return balance / LAMPORTS_PER_SOL;
 };
 
-export const getTokenBalance = async (walletAddress: string, payerSecretKey: string) => {
+export const getTokenBalance = async (walletAddress: string, tokenMintAddress: string, payerSecretKey: string) => {
     const connection = new Connection(config.solana.rpcUrl);
     const walletPublicKey = new PublicKey(walletAddress);
-    const payerKeypair = Keypair.fromSecretKey(Uint8Array.from(Buffer.from(payerSecretKey, 'hex')))
+    const payerKeypair = Keypair.fromSecretKey(Uint8Array.from(Buffer.from(payerSecretKey, 'hex')));
 
+    const mintPublicKey = new PublicKey(tokenMintAddress);
     const tokenAccount = await getOrCreateAssociatedTokenAccount(
         connection,
         payerKeypair,
-        tokenMintAddress,
+        mintPublicKey,
         walletPublicKey
     );
 
@@ -40,22 +41,23 @@ export const getTokenBalance = async (walletAddress: string, payerSecretKey: str
 };
 
 
-export const sendTokenTransaction = async (from: string, to: string, amount: number) => {
+export const sendTokenTransaction = async (from: string, to: string, amount: number, tokenMintAddress: string) => {
     const connection = new Connection(config.solana.rpcUrl);
     const fromKeypair = Keypair.fromSecretKey(Uint8Array.from(Buffer.from(from, 'hex')));
     const toPublicKey = new PublicKey(to);
+    const mint = new PublicKey(tokenMintAddress);
 
     const fromTokenAccount = await getOrCreateAssociatedTokenAccount(
         connection,
         fromKeypair,
-        tokenMintAddress,
+        mint,
         fromKeypair.publicKey
     );
 
     const toTokenAccount = await getOrCreateAssociatedTokenAccount(
         connection,
         fromKeypair,
-        tokenMintAddress,
+        mint,
         toPublicKey
     );
 
@@ -76,3 +78,4 @@ export const sendTokenTransaction = async (from: string, to: string, amount: num
     logger.info(`Token transaction sent from ${fromKeypair.publicKey.toBase58()} to ${toPublicKey.toBase58()} amount: ${amount}`);
     return signature;
 };
+

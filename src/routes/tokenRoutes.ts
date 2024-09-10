@@ -1,10 +1,9 @@
 import { Router } from 'express';
-import { createSPLToken, getTokenBalance, sendToken } from '../controllers/tokenController';
+import { getTokenBalanceController, sendTokenController } from '../controllers/tokenController';
 
 const router = Router();
 
-router.post('/token/create', createSPLToken);
-router.get('/token/:walletAddress/:tokenMintAddress/balance', getTokenBalance);
-router.post('/token/send', sendToken);
+router.get('/token/:walletAddress/:tokenMintAddress/balance', getTokenBalanceController);
+router.post('/token/send', sendTokenController);
 
 export default router;
