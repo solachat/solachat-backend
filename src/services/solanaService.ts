@@ -4,6 +4,9 @@ import { config } from '../config/config';
 import logger from '../utils/logger';
 
 const tokenMintAddress = new PublicKey(config.token.mintAddress);
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000;
+const TIMEOUT_MS = 5000;
 
 export const createNewWallet = () => {
     const keypair = Keypair.generate();
@@ -16,11 +19,34 @@ export const createNewWallet = () => {
 };
 
 export const getSolanaBalance = async (address: string) => {
-    const connection = new Connection(config.solana.rpcUrl);
+    const connection = new Connection(config.solana.rpcUrl, {
+        commitment: 'confirmed',
+        confirmTransactionInitialTimeout: TIMEOUT_MS,
+    });
     const publicKey = new PublicKey(address);
-    const balance = await connection.getBalance(publicKey);
-    logger.info(`Balance fetched for address ${address}: ${balance / LAMPORTS_PER_SOL} SOL`);
-    return balance / LAMPORTS_PER_SOL;
+
+    let retries = 0;
+    let balance: number | null = null;
+
+    while (retries < MAX_RETRIES) {
+        try {
+            balance = await connection.getBalance(publicKey);
+            logger.info(`Balance fetched for address ${address}: ${balance / LAMPORTS_PER_SOL} SOL`);
+            return balance / LAMPORTS_PER_SOL;
+        } catch (err) {
+            const error = err as Error;
+            retries += 1;
+            logger.error(`Error fetching balance (attempt ${retries}) for ${address}: ${error.message}`);
+
+            if (retries >= MAX_RETRIES) {
+                throw new Error(`Failed to fetch balance after ${MAX_RETRIES} attempts: ${error.message}`);
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+        }
+    }
+
+    return balance;
 };
 
 export const getTokenBalance = async (walletAddress: string, tokenMintAddress: string, payerSecretKey: string) => {

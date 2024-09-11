@@ -85,7 +85,7 @@ export const getProfile = async (req: Request, res: Response) => {
 
 export const updateProfile = async (req: Request, res: Response) => {
     const { username } = req.params;
-    const { shareEmail, shareCountry, shareTimezone } = req.body;
+    const { newUsername, realname, email } = req.body;
 
     try {
         const user = await User.findOne({ where: { username } });
@@ -93,14 +93,21 @@ export const updateProfile = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        user.shareEmail = shareEmail;
-        user.shareCountry = shareCountry;
-        user.shareTimezone = shareTimezone;
+        user.username = newUsername;
+        user.realname = realname;
+        user.email = email;
 
         await user.save();
 
-        res.json({ message: 'Profile updated successfully' });
+        const token = jwt.sign(
+            { id: user.id, email: user.email, username: user.username },
+            process.env.JWT_SECRET || 'your_default_secret',
+            { expiresIn: '1h' }
+        );
+
+        res.json({ user: user.toJSON(), token });
     } catch (error) {
         res.status(500).json({ error: 'Error updating profile' });
     }
 };
+
