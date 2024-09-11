@@ -42,7 +42,7 @@ export const loginUser = async (req: Request, res: Response) => {
             return res.status(401).json({ message: 'Invalid email or password' });
         }
 
-        const token = jwt.sign({ id: user.id, email: user.email }, secret, { expiresIn: '1h' });
+        const token = jwt.sign({ id: user.id, email: user.email, username: user.username }, secret, { expiresIn: '1h' });
 
         return res.json({ token, user: { username: user.username, email: user.email } });
     } catch (error) {
@@ -55,18 +55,33 @@ export const loginUser = async (req: Request, res: Response) => {
 };
 
 export const getProfile = async (req: Request, res: Response) => {
-    const { username } = req.query;
+    const token = req.headers.authorization?.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ message: 'No token provided' });
+    }
+
+    if (!secret) {
+        return res.status(500).json({ message: 'JWT secret is not defined' });
+    }
 
     try {
-        const user = await User.findOne({ where: { username } });
+        const decoded = jwt.verify(token, secret) as { username: string };
+
+        const user = await User.findOne({ where: { username: req.query.username } });
+
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
-        res.json(user);
+
+        const isOwner = decoded.username === user.username;
+
+        res.json({ ...user.dataValues, isOwner });
     } catch (error) {
-        res.status(500).json({ error: 'Error fetching profile' });
+        return res.status(401).json({ message: 'Invalid token' });
     }
 };
+
 
 export const updateProfile = async (req: Request, res: Response) => {
     const { username } = req.params;
