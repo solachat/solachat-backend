@@ -1,6 +1,16 @@
+import { JwtPayload } from 'jsonwebtoken';
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import {config} from '../config/config';
+import { config } from '../config/config';
+
+
+declare global {
+    namespace Express {
+        interface Request {
+            user?: string | JwtPayload;
+        }
+    }
+}
 
 export const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
     const token = req.header('Authorization')?.split(' ')[1];
@@ -10,7 +20,7 @@ export const authenticateToken = (req: Request, res: Response, next: NextFunctio
 
     try {
         const decoded = jwt.verify(token, config.jwtSecret);
-        req.user = decoded;
+        req.user = decoded as JwtPayload;
         next();
     } catch (err) {
         res.status(401).json({ message: 'Invalid token' });
