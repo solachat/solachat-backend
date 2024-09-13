@@ -4,11 +4,11 @@ import sequelize from '../config/db';
 class User extends Model {
     public id!: number;
     public public_key!: string;
-    public secret_key!: string;
     public email!: string;
     public password!: string;
     public username!: string;
     public realname!: string;
+    public aboutMe?: string; // Добавляем поле aboutMe
     public lastLogin!: Date;
     public shareEmail!: boolean;
     public shareCountry!: boolean;
@@ -24,10 +24,6 @@ User.init(
             type: DataTypes.STRING,
             allowNull: false,
             unique: true,
-        },
-        secret_key: {
-            type: DataTypes.STRING,
-            allowNull: false,
         },
         email: {
             type: DataTypes.STRING,
@@ -49,6 +45,10 @@ User.init(
         realname: {
             type: DataTypes.STRING,
             allowNull: false,
+        },
+        aboutMe: {
+            type: DataTypes.STRING,
+            allowNull: true,
         },
         lastLogin: {
             type: DataTypes.DATE,
@@ -76,7 +76,11 @@ User.init(
         },
         rating: {
             type: DataTypes.FLOAT,
-            allowNull: true,
+            allowNull: false,
+            defaultValue: 0,
+            validate: {
+                isFloat: true,
+            },
         },
     },
     {

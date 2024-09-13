@@ -27,27 +27,21 @@ export const createUser = async (
     email: string,
     password: string,
     publicKey: string,
-    secretKey: string,
     username: string,
-    realname: string,
-    avatar: string | null,
-    rating: number | null
+    realname: string
 ) => {
     const encryptedPassword = encryptPassword(password);
     const user = await User.create({
         email,
         password: encryptedPassword,
         public_key: publicKey,
-        secret_key: secretKey,
         username,
         realname,
-        avatar,
-        rating,
         lastLogin: new Date(),
     });
+    console.log('Creating user with public key:', publicKey);
     return user;
 };
-
 
 export const checkPassword = async (userId: number, password: string): Promise<boolean> => {
     const user = await User.findByPk(userId);
