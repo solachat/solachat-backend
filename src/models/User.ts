@@ -14,6 +14,7 @@ class User extends Model {
     public shareCountry!: boolean;
     public shareTimezone!: boolean;
     public avatar?: string;
+    avatarHash!: string;
     public rating?: number;
     public readonly createdAt!: Date;
 }
@@ -73,6 +74,10 @@ User.init(
         avatar: {
             type: DataTypes.STRING,
             allowNull: true,
+        },
+        avatarHash: {
+            type: DataTypes.STRING,
+            allowNull: true
         },
         rating: {
             type: DataTypes.FLOAT,

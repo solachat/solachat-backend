@@ -1,8 +1,12 @@
 import { Request, Response } from 'express';
 import { createUser, checkPassword } from '../services/userService';
+import { UserRequest } from '../types/types';
 import User from '../models/User';
 import logger from '../utils/logger';
-import jwt from "jsonwebtoken";
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import fs from 'fs'; // Импорт fs
+import path from 'path'; // Импорт path
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
@@ -54,8 +58,6 @@ export const loginUser = async (req: Request, res: Response) => {
     }
 };
 
-
-
 export const getProfile = async (req: Request, res: Response) => {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) {
@@ -71,14 +73,19 @@ export const getProfile = async (req: Request, res: Response) => {
         }
 
         const isOwner = decoded.username === user.username;
-        res.json({ ...user.dataValues, isOwner, aboutMe: user.aboutMe });
+
+        res.json({
+            ...user.dataValues,
+            avatar: user.avatar,
+            isOwner,
+            aboutMe: user.aboutMe
+        });
     } catch (error) {
         const err = error as Error;
         logger.error(`Profile fetch failed: ${err.message}`);
         return res.status(401).json({ message: 'Invalid token' });
     }
 };
-
 
 export const updateProfile = async (req: Request, res: Response) => {
     const { username } = req.params;
@@ -143,4 +150,102 @@ export const phantomLogin = async (req: Request, res: Response) => {
     }
 };
 
+const hashFile = (filePath: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const hash = crypto.createHash('sha256');
+        const stream = fs.createReadStream(filePath);
+        stream.on('data', (data) => hash.update(data));
+        stream.on('end', () => resolve(hash.digest('hex')));
+        stream.on('error', reject);
+    });
+};
+
+const ensureDirectoryExists = (dir: string) => {
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+};
+
+
+export const updateAvatar = async (req: UserRequest, res: Response) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({ message: 'User is not authenticated' });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({ message: 'No file uploaded' });
+        }
+
+        const user = await User.findOne({ where: { id: req.user.id } });
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const uploadsDir = path.join(__dirname, '../../uploads/avatars');
+        ensureDirectoryExists(uploadsDir);
+
+        const uploadedFilePath = path.join(uploadsDir, req.file.filename);
+
+        const uploadedFileHash = await hashFile(uploadedFilePath);
+
+        const existingUserWithSameHash = await User.findOne({ where: { avatarHash: uploadedFileHash } });
+
+        if (existingUserWithSameHash) {
+            logger.info(`The same avatar is being uploaded again for user: ${user.username}`);
+
+            fs.unlink(uploadedFilePath, (err) => {
+                if (err) {
+                    logger.error(`Error removing duplicate file: ${err.message}`);
+                }
+            });
+
+            return res.json({
+                message: 'Avatar is the same as an existing one, no changes made',
+                avatar: existingUserWithSameHash.avatar,
+            });
+        }
+
+        const avatarUrl = `${req.protocol}://${req.get('host')}/uploads/avatars/${req.file.filename}`;
+        user.avatar = avatarUrl;
+        user.avatarHash = uploadedFileHash;
+        await user.save();
+
+        logger.info(`Avatar updated for user: ${user.username}`);
+        res.json({ message: 'Avatar updated successfully', avatar: user.avatar });
+    } catch (error) {
+        const err = error as Error;
+        logger.error(`Failed to update avatar: ${err.message}`);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const getUserAvatars = async (req: Request, res: Response) => {
+    try {
+        const userId = req.params.userId;
+        const user = await User.findOne({ where: { id: userId } });
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const avatarsDir = path.join(__dirname, '../uploads/avatars');
+
+        const allAvatars = fs.readdirSync(avatarsDir);
+
+        const userAvatars = allAvatars.filter((filename) => {
+            return filename.startsWith(user.username);
+        });
+
+        const avatarUrls = userAvatars.map((filename) => {
+            return `${req.protocol}://${req.get('host')}/uploads/avatars/${filename}`;
+        });
+
+        res.json({ avatars: avatarUrls });
+    } catch (error) {
+        console.error('Error fetching user avatars:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
 
