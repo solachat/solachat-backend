@@ -6,7 +6,8 @@ import logger from '../utils/logger';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import fs from 'fs'; // Импорт fs
-import path from 'path'; // Импорт path
+import path from 'path';
+import {Op} from "sequelize"; // Импорт path
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
@@ -178,7 +179,6 @@ export const updateAvatar = async (req: UserRequest, res: Response) => {
         }
 
         const user = await User.findOne({ where: { id: req.user.id } });
-
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
@@ -188,19 +188,17 @@ export const updateAvatar = async (req: UserRequest, res: Response) => {
 
         const uploadedFilePath = path.join(uploadsDir, req.file.filename);
 
+        // Создание хэша для файла аватара
         const uploadedFileHash = await hashFile(uploadedFilePath);
 
         const existingUserWithSameHash = await User.findOne({ where: { avatarHash: uploadedFileHash } });
 
         if (existingUserWithSameHash) {
-            logger.info(`The same avatar is being uploaded again for user: ${user.username}`);
-
             fs.unlink(uploadedFilePath, (err) => {
                 if (err) {
                     logger.error(`Error removing duplicate file: ${err.message}`);
                 }
             });
-
             return res.json({
                 message: 'Avatar is the same as an existing one, no changes made',
                 avatar: existingUserWithSameHash.avatar,
@@ -212,7 +210,6 @@ export const updateAvatar = async (req: UserRequest, res: Response) => {
         user.avatarHash = uploadedFileHash;
         await user.save();
 
-        logger.info(`Avatar updated for user: ${user.username}`);
         res.json({ message: 'Avatar updated successfully', avatar: user.avatar });
     } catch (error) {
         const err = error as Error;
@@ -249,3 +246,18 @@ export const getUserAvatars = async (req: Request, res: Response) => {
     }
 };
 
+export const searchUser = async (req: Request, res: Response) => {
+    const { username } = req.query;
+
+    try {
+        const users = await User.findAll({
+            where: { username: { [Op.like]: `%${username}%` } },
+            attributes: ['id', 'username', 'avatar'],
+        });
+
+        res.status(200).json(users);
+    } catch (error) {
+        console.error('Error searching for users:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};

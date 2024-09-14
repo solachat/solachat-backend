@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { Request, Response } from 'express';
 import User from '../models/User';
 
 const AES_SECRET_KEY = process.env.AES_SECRET_KEY || 'default_secret_key_32_bytes_long';
@@ -50,3 +51,17 @@ export const checkPassword = async (userId: number, password: string): Promise<b
     const decryptedPassword = decryptPassword(user.password);
     return decryptedPassword === password;
 };
+
+export const getUserById = async (userId: number) => {
+    try {
+        const user = await User.findByPk(userId);
+        if (!user) {
+            return null;
+        }
+        return user;
+    } catch (error) {
+        console.error('Error fetching user by ID:', error);
+        throw new Error('Error fetching user by ID');
+    }
+};
+

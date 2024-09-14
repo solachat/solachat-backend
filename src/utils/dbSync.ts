@@ -1,6 +1,13 @@
 import sequelize from '../config/db';
+
 import '../models/User';
 import '../models/Transaction';
+import '../models/Message';
+import '../models/Chat';
+import '../models/File';
+import '../models/UserChats';
+
+import '../models/associations';
 
 export const syncDatabase = async () => {
     try {

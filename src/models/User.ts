@@ -8,13 +8,13 @@ class User extends Model {
     public password!: string;
     public username!: string;
     public realname!: string;
-    public aboutMe?: string; // Добавляем поле aboutMe
+    public aboutMe?: string;
     public lastLogin!: Date;
     public shareEmail!: boolean;
     public shareCountry!: boolean;
     public shareTimezone!: boolean;
     public avatar?: string;
-    avatarHash!: string;
+    public avatarHash!: string;
     public rating?: number;
     public readonly createdAt!: Date;
 }
@@ -77,7 +77,7 @@ User.init(
         },
         avatarHash: {
             type: DataTypes.STRING,
-            allowNull: true
+            allowNull: true,
         },
         rating: {
             type: DataTypes.FLOAT,
