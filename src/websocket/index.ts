@@ -4,7 +4,7 @@ import User from '../models/User';
 import { getUserById } from '../services/userService';
 import Message from "../models/Message";
 import {createMessage} from "../services/messageService";
-import Chat from "../models/Chat"; // Импортируем сервис для получения пользователя
+import Chat from "../models/Chat";
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
@@ -19,7 +19,7 @@ export const initWebSocketServer = (server: any) => {
     const wss = new WebSocket.Server({ server });
 
     wss.on('connection', async (ws: WebSocket, req: any) => {
-        const token = req.url?.split('token=')[1]; // Токен передаётся в URL
+        const token = req.url?.split('token=')[1];
         if (!token) {
             ws.close();
             return;
@@ -40,12 +40,12 @@ export const initWebSocketServer = (server: any) => {
             console.log(`User ${user.username} connected`);
 
             ws.on('message', (message: string) => {
-                handleMessage(userId, message); // Обрабатываем сообщение
+                handleMessage(userId, message);
             });
 
             ws.on('close', () => {
                 console.log(`User ${user.username} disconnected`);
-                removeUserConnection(userId); // Удаляем пользователя из списка подключений
+                removeUserConnection(userId);
             });
         } catch (error) {
             ws.close();

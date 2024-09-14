@@ -5,8 +5,8 @@ import { upload } from '../config/uploadConfig';
 
 const router = Router();
 
+router.post('/:chatId/upload', authenticateToken, upload.single('file'), sendMessageController);
 router.post('/:chatId', authenticateToken, sendMessageController);
 router.get('/:chatId', authenticateToken, getMessagesController);
-router.post('/:chatId/upload', authenticateToken, upload.single('file'), sendMessageController);
 
 export default router;

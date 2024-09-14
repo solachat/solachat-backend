@@ -5,9 +5,9 @@ import User from '../models/User';
 import logger from '../utils/logger';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import fs from 'fs'; // Импорт fs
+import fs from 'fs';
 import path from 'path';
-import {Op} from "sequelize"; // Импорт path
+import {Op} from "sequelize";
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
@@ -252,7 +252,7 @@ export const searchUser = async (req: Request, res: Response) => {
     try {
         const users = await User.findAll({
             where: { username: { [Op.like]: `%${username}%` } },
-            attributes: ['id', 'username', 'avatar'],
+            attributes: ['id', 'realname', 'username', 'avatar'],
         });
 
         res.status(200).json(users);

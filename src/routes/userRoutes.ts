@@ -16,11 +16,13 @@ const router = Router();
 router.post('/register', registerUser);
 router.post('/login', loginUser);
 router.post('/phantom-login', phantomLogin);
+
 router.get('/profile', getProfile);
-router.put('/profile/:username', authenticateToken, updateProfile);
-router.put('/avatar', authenticateToken, upload.single('avatar'), updateAvatar);
 router.get('/:username/avatars', getUserAvatars);
 router.get('/users/:userId', getUserById);
 router.get('/search', searchUser);
+
+router.put('/profile/:username', authenticateToken, updateProfile);
+router.put('/avatar', authenticateToken, upload.single('avatar'), updateAvatar);
 
 export default router;

@@ -1,5 +1,4 @@
 import crypto from 'crypto';
-import { Request, Response } from 'express';
 import User from '../models/User';
 
 const AES_SECRET_KEY = process.env.AES_SECRET_KEY || 'default_secret_key_32_bytes_long';
