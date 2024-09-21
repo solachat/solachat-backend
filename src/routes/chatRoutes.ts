@@ -12,7 +12,7 @@ const router = Router();
 router.post('/private', authenticateToken, createPrivateChatController);
 router.post('/group', authenticateToken, createGroupChatController);
 router.get('/:chatId', authenticateToken, getChatController);
-router.get('/chats', authenticateToken, getChatsController);
+router.post('/chats', authenticateToken, getChatsController);
 router.get('/:chatId/messages', authenticateToken, getChatWithMessagesController);
 
 export default router;

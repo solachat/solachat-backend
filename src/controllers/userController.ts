@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { createUser, checkPassword } from '../services/userService';
+import {createUser, checkPassword, fetchUserById} from '../services/userService';
 import { UserRequest } from '../types/types';
 import User from '../models/User';
 import logger from '../utils/logger';
@@ -257,7 +257,21 @@ export const searchUser = async (req: Request, res: Response) => {
 
         res.status(200).json(users);
     } catch (error) {
-        console.error('Error searching for users:', error);
+        logger.error(`Error searching users: ${(error as Error).message}`);
         res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const getUserById = async (req: Request, res: Response) => {
+    const { userId } = req.params;
+
+    try {
+        const user = await fetchUserById(Number(userId));
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        return res.status(200).json(user);
+    } catch (error) {
+        return res.status(500).json({ message: 'Error fetching user by ID', error });
     }
 };

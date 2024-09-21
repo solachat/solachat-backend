@@ -2,6 +2,7 @@ import { JwtPayload } from 'jsonwebtoken';
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { config } from '../config/config';
+import { UserRequest } from '../types/types';
 
 declare global {
     namespace Express {

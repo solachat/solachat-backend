@@ -64,3 +64,15 @@ export const getUserById = async (userId: number) => {
     }
 };
 
+export const fetchUserById = async (userId: number) => {
+    try {
+        const user = await User.findByPk(userId);
+        if (!user) {
+            throw new Error('User not found');
+        }
+        return user;
+    } catch (error) {
+        console.error('Error fetching user by ID:', error);
+        throw error;
+    }
+};

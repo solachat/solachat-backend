@@ -1,5 +1,6 @@
 import { DataTypes, Model } from 'sequelize';
 import sequelize from '../config/db';
+import Chat from './Chat'; // Включаем Chat для ассоциаций
 
 class User extends Model {
     public id!: number;
@@ -16,7 +17,9 @@ class User extends Model {
     public avatar?: string;
     public avatarHash!: string;
     public rating?: number;
+    public online!: boolean;
     public readonly createdAt!: Date;
+    public readonly updatedAt!: Date;
 }
 
 User.init(
@@ -87,6 +90,11 @@ User.init(
                 isFloat: true,
             },
         },
+        online: {
+            type: DataTypes.BOOLEAN,
+            allowNull: false,
+            defaultValue: false,
+        },
     },
     {
         sequelize,
@@ -94,5 +102,6 @@ User.init(
         timestamps: true,
     }
 );
+
 
 export default User;

@@ -21,11 +21,13 @@ export const createMessage = async (userId: number, chatId: number, content: str
         filePath = uploadedFile.filePath;
     }
 
+    // Добавляем значение timestamp
     const message = await Message.create({
         chatId,
         userId,
         content: content || '',
-        filePath
+        filePath,
+        timestamp: new Date().toISOString(),  // Добавляем текущее время
     });
 
     return message;

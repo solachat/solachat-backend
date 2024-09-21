@@ -7,12 +7,15 @@ import {
     getChatsForUser
 } from '../services/chatService';
 import { UserRequest } from '../types/types';
-import Chat from '../models/Chat';
-import User from '../models/User';
 
 export const createPrivateChatController = async (req: Request, res: Response) => {
     const { user1Id, user2Id } = req.body;
     try {
+        // Проверяем, что ID пользователей не совпадают
+        if (user1Id === user2Id) {
+            return res.status(400).json({ message: 'Нельзя создать чат с самим собой' });
+        }
+
         const chat = await createPrivateChat(user1Id, user2Id);
         res.status(201).json(chat);
     } catch (error) {
@@ -49,27 +52,23 @@ export const getChatController = async (req: Request, res: Response) => {
     }
 };
 
-export const getChatsController = async (req: UserRequest, res: Response) => {
+export const getChatsController = async (req: Request, res: Response) => {
     try {
-        const userId = req.user?.id;
-        console.log('Received request to fetch chats for user:', userId);
+        const { userId } = req.body;
 
-        if (!userId) {
-            console.error('User ID is missing or unauthorized');
-            return res.status(401).json({ error: 'Unauthorized' });
+        if (!userId || isNaN(Number(userId))) {
+            return res.status(400).json({ message: 'Invalid or missing User ID' });
         }
 
-        const chats = await getChatsForUser(userId);
-        console.log('Fetched chats:', chats);
-
-        res.status(200).json(chats.length ? chats : []);
+        const chats = await getChatsForUser(Number(userId));
+        res.status(200).json(chats);
     } catch (error) {
-        console.error('Error fetching chats:', error);
-        res.status(500).json({ message: 'Internal server error' });
+        console.error('Error fetching chats:', (error as Error).message);
+        res.status(500).json({ message: 'Failed to fetch chats' });
     }
 };
 
-export const getChatWithMessagesController = async (req: Request, res: Response) => {
+export const getChatWithMessagesController = async (req: UserRequest, res: Response) => {
     const { chatId } = req.params;
 
     const chatIdNumber = Number(chatId);
@@ -78,7 +77,13 @@ export const getChatWithMessagesController = async (req: Request, res: Response)
     }
 
     try {
-        const chat = await getChatWithMessages(chatIdNumber);
+        // Получаем userId из req.user
+        const userId = req.user?.id;
+        if (!userId) {
+            return res.status(401).json({ message: 'Unauthorized' });
+        }
+
+        const chat = await getChatWithMessages(chatIdNumber, userId);
         res.status(200).json(chat);
     } catch (error) {
         console.error('Error fetching chat with messages:', (error as Error).message);

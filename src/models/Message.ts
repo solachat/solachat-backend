@@ -1,13 +1,16 @@
 import { DataTypes, Model } from 'sequelize';
 import sequelize from '../config/db';
-import User from './User';
 import Chat from './Chat';
+import User from './User';
 
 class Message extends Model {
     public id!: number;
     public content!: string;
     public chatId!: number;
     public userId!: number;
+    public timestamp!: string;
+    public filePath?: string;
+    public unread!: boolean;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
 }
@@ -33,6 +36,19 @@ Message.init(
                 key: 'id',
             },
             allowNull: false,
+        },
+        timestamp: {
+            type: DataTypes.STRING,
+            allowNull: false,
+            defaultValue: () => new Date().toISOString(),
+        },
+        filePath: {
+            type: DataTypes.STRING,
+            allowNull: true,
+        },
+        unread: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: false,
         },
     },
     {
