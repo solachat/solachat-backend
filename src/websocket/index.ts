@@ -5,8 +5,7 @@ import { getUserById } from '../services/userService';
 import Message from '../models/Message';
 import { createMessage } from '../services/messageService';
 import Chat from '../models/Chat';
-import { decrypt } from '../utils/encryptionUtils'; // Импорт дешифрования
-import { encrypt } from '../utils/encryptionUtils'; // Импорт шифрования
+import { decrypt } from '../utils/encryptionUtils';
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
@@ -101,51 +100,59 @@ const handleMessage = async (userId: number, rawMessage: string) => {
     }
 };
 
-const broadcastMessage = (chatId: number, message: Message) => {
-    // Ищем участников чата
-    Chat.findByPk(chatId, {
-        include: [
-            {
-                model: User,
-                attributes: ['id']
-            }
-        ]
-    }).then(chat => {
-        if (!chat) {
-            console.error(`Chat with ID ${chatId} not found`);
+const broadcastMessage = async (chatId: number, message: Message) => {
+    try {
+        // Загружаем данные об отправителе
+        const sender = await User.findByPk(message.userId, {
+            attributes: ['id', 'username', 'realname', 'avatar', 'online'],
+        });
+
+        if (!sender) {
+            console.error('Sender not found');
             return;
         }
 
-        // Проверяем, что у чата есть участники
-        if (!chat.users || chat.users.length === 0) {
-            console.error(`No participants found for chat ID ${chatId}`);
+        // Получаем участников чата
+        const chat = await Chat.findByPk(chatId, {
+            include: [
+                {
+                    model: User,
+                    attributes: ['id']
+                }
+            ]
+        });
+
+        if (!chat || !chat.users || !Array.isArray(chat.users)) {
+            console.error(`Chat with ID ${chatId} not found or has no participants`);
             return;
         }
 
         // Получаем IDs участников чата
         const participantIds = chat.users.map(user => user.id);
 
-        // Передаем сообщение только участникам чата
+        // Отправляем сообщение с полной информацией о пользователе всем участникам чата
         connectedUsers.forEach(({ ws, userId }) => {
             if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
-                // Дешифруем сообщение перед отправкой
-                const decryptedMessageContent = decrypt(JSON.parse(message.content));
-
                 ws.send(JSON.stringify({
-                    type: 'NEW_MESSAGE',
-                    chatId,
+                    type: 'newMessage',
                     message: {
                         id: message.id,
-                        content: decryptedMessageContent,
+                        content: decrypt(JSON.parse(message.content)),
                         createdAt: message.createdAt,
-                        senderId: message.userId
+                        sender: {  // Теперь мы отправляем данные о sender
+                            id: sender.id,
+                            username: sender.username,
+                            realname: sender.realname,
+                            avatar: sender.avatar,
+                            online: sender.online,
+                        }
                     }
                 }));
             }
         });
-    }).catch(error => {
-        console.error(`Error fetching chat ID ${chatId}:`, error);
-    });
+    } catch (error) {
+        console.error('Error broadcasting message:', error);
+    }
 };
 
 const removeUserConnection = (userId: number) => {
