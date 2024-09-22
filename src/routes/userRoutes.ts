@@ -5,6 +5,7 @@ import {
     getProfile,
     updateProfile,
     phantomLogin,
+    updateUserStatusController,
     updateAvatar, getUserAvatars, searchUser
 } from '../controllers/userController';
 import {authenticateToken} from "../middleware/authMiddleware";
@@ -16,6 +17,7 @@ const router = Router();
 router.post('/register', registerUser);
 router.post('/login', loginUser);
 router.post('/phantom-login', phantomLogin);
+router.post('/update-status', updateUserStatusController);
 
 router.get('/profile', getProfile);
 router.get('/:username/avatars', getUserAvatars);

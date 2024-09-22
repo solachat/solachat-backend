@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import {createUser, checkPassword, fetchUserById} from '../services/userService';
+import {createUser, checkPassword, fetchUserById, updateUserStatus} from '../services/userService';
 import { UserRequest } from '../types/types';
 import User from '../models/User';
 import logger from '../utils/logger';
@@ -273,5 +273,20 @@ export const getUserById = async (req: Request, res: Response) => {
         return res.status(200).json(user);
     } catch (error) {
         return res.status(500).json({ message: 'Error fetching user by ID', error });
+    }
+};
+
+export const updateUserStatusController = async (req: Request, res: Response) => {
+    const { userId, isOnline } = req.body;
+
+    if (!userId || typeof isOnline === 'undefined') {
+        return res.status(400).json({ message: 'userId and isOnline are required' });
+    }
+
+    try {
+        await updateUserStatus(userId, isOnline);
+        return res.status(200).json({ message: 'User status updated successfully' });
+    } catch (error) {
+        return res.status(500).json({ message: 'Error updating user status', error });
     }
 };

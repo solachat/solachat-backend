@@ -76,3 +76,25 @@ export const fetchUserById = async (userId: number) => {
         throw error;
     }
 };
+
+export const updateUserStatus = async (userId: number, isOnline: boolean) => {
+    try {
+        console.log(`Attempting to update user status for userId: ${userId}, online: ${isOnline}`);
+
+        const user = await User.findByPk(userId);
+        if (!user) {
+            console.error(`User with ID ${userId} not found`);
+            return;
+        }
+
+        console.log(`User ${user.username} found, current status: ${user.online}`);
+
+        user.online = isOnline;
+
+        await user.save();
+        console.log(`User ${user.username} status updated successfully to ${user.online}`);
+    } catch (error) {
+        console.error('Error updating user status:', error);
+        throw error;
+    }
+};

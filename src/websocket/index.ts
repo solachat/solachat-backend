@@ -21,38 +21,44 @@ export const initWebSocketServer = (server: any) => {
 
     wss.on('connection', async (ws: WebSocket, req: any) => {
         const token = req.url?.split('token=')[1];
-        console.log('Received token:', token);
 
         if (!token) {
-            console.error('No token provided, closing connection.');
             ws.close(4001, 'No token provided');
             return;
         }
 
         try {
             const decoded = jwt.verify(token, secret) as { id: number };
-            console.log('Токен успешно декодирован:', decoded);
             const userId = decoded.id;
 
             const user = await getUserById(userId);
             if (!user) {
-                console.error('User not found, closing connection.');
                 ws.close(4002, 'User not found');
                 return;
             }
 
-            console.log('Пользователь найден:', user.username);
+            // Вызываем функцию для обновления статуса пользователя на "online"
+            await updateUserStatus(userId, true);
+            console.log(`User ${user.username} is now online`);
 
             connectedUsers.push({ ws, userId });
-            console.log(`User ${user.username} connected`);
 
-            ws.on('message', (message: string) => {
-                handleMessage(userId, message);
+            ws.on('message', async (message: string) => {
+                const parsedMessage = JSON.parse(message);
+
+                if (parsedMessage.type === 'heartbeat') {
+                    console.log(`Received heartbeat from user ${user.username}`);
+                    await updateUserStatus(userId, true); // Обновляем статус на "online"
+                } else {
+                    handleMessage(userId, parsedMessage);
+                }
             });
 
-            ws.on('close', (code, reason) => {
+            ws.on('close', async (code, reason) => {
                 console.log(`User ${user.username} disconnected with code ${code}, reason: ${reason}`);
                 removeUserConnection(userId);
+
+                await updateUserStatus(userId, false);
             });
 
             ws.on('error', (error) => {
@@ -139,7 +145,7 @@ const broadcastMessage = async (chatId: number, message: Message) => {
                         id: message.id,
                         content: decrypt(JSON.parse(message.content)),
                         createdAt: message.createdAt,
-                        sender: {  // Теперь мы отправляем данные о sender
+                        sender: {
                             id: sender.id,
                             username: sender.username,
                             realname: sender.realname,
@@ -159,5 +165,21 @@ const removeUserConnection = (userId: number) => {
     const index = connectedUsers.findIndex((user) => user.userId === userId);
     if (index !== -1) {
         connectedUsers.splice(index, 1);
+    }
+};
+
+const updateUserStatus = async (userId: number, isOnline: boolean) => {
+    try {
+        const user = await User.findByPk(userId);
+        if (!user) {
+            console.error(`User with ID ${userId} not found`);
+            return;
+        }
+
+        user.online = isOnline;
+        await user.save();  // Сохраняем обновленный статус
+        console.log(`User ${user.username} status updated to ${isOnline ? 'online' : 'offline'}`);
+    } catch (error) {
+        console.error('Error updating user status:', error);
     }
 };
