@@ -8,7 +8,6 @@ import {
 } from '../services/chatService';
 import { UserRequest } from '../types/types';
 
-// Создание приватного чата
 export const createPrivateChatController = async (req: Request, res: Response) => {
     const { user1Id, user2Id } = req.body;
     try {
@@ -24,7 +23,6 @@ export const createPrivateChatController = async (req: Request, res: Response) =
     }
 };
 
-// Создание группового чата
 export const createGroupChatController = async (req: Request, res: Response) => {
     const { userIds, chatName } = req.body;
     try {
@@ -36,7 +34,6 @@ export const createGroupChatController = async (req: Request, res: Response) => 
     }
 };
 
-// Получение чата по ID
 export const getChatController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
 
@@ -54,7 +51,6 @@ export const getChatController = async (req: Request, res: Response) => {
     }
 };
 
-// Получение чатов пользователя
 export const getChatsController = async (req: UserRequest, res: Response) => {
     try {
         const userId = req.user?.id;
@@ -70,7 +66,6 @@ export const getChatsController = async (req: UserRequest, res: Response) => {
     }
 };
 
-// Получение чата с сообщениями
 export const getChatWithMessagesController = async (req: UserRequest, res: Response) => {
     const { chatId } = req.params;
 

@@ -4,7 +4,6 @@ import Message from '../models/Message';
 import { Op } from 'sequelize';
 import { decrypt } from '../utils/encryptionUtils';
 
-// Создание приватного чата
 export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     try {
         const chats = await Chat.findAll({
@@ -19,7 +18,6 @@ export const createPrivateChat = async (user1Id: number, user2Id: number) => {
             ]
         });
 
-        // Проверяем, существует ли уже чат между пользователями
         const existingChat = chats.find(chat => {
             const userIds = chat.users ? chat.users.map(user => user.id) : [];
             return userIds.includes(user1Id) && userIds.includes(user2Id) && userIds.length === 2;
@@ -30,7 +28,6 @@ export const createPrivateChat = async (user1Id: number, user2Id: number) => {
             return existingChat;
         }
 
-        // Создаем новый чат
         const newChat = await Chat.create({ isGroup: false });
         const user1 = await User.findByPk(user1Id);
         const user2 = await User.findByPk(user2Id);
@@ -48,7 +45,6 @@ export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     }
 };
 
-// Создание группового чата
 export const createGroupChat = async (userIds: number[], chatName: string) => {
     try {
         const chat = await Chat.create({ name: chatName, isGroup: true });
@@ -66,7 +62,6 @@ export const createGroupChat = async (userIds: number[], chatName: string) => {
     }
 };
 
-// Получение чата по ID
 export const getChatById = async (chatId: number) => {
     try {
         const chat = await Chat.findByPk(chatId, {
@@ -97,10 +92,9 @@ export const getChatById = async (chatId: number) => {
             throw new Error('Чат не найден');
         }
 
-        // Расшифровываем сообщения
         const decryptedMessages = chat.messages?.map((message: Message) => ({
             ...message.toJSON(),
-            content: decrypt(JSON.parse(message.content))  // Расшифровываем сообщение
+            content: decrypt(JSON.parse(message.content))
         }));
 
         return {
@@ -114,7 +108,6 @@ export const getChatById = async (chatId: number) => {
 };
 
 
-// Получение чатов пользователя
 export const getChatsForUser = async (userId: number) => {
     try {
         const chats = await Chat.findAll({
@@ -135,12 +128,10 @@ export const getChatsForUser = async (userId: number) => {
             order: [['updatedAt', 'DESC']],
         });
 
-        // Фильтруем чаты, чтобы вернуть только те, где участвует текущий пользователь
         const userChats = chats.filter(chat =>
-            chat.users && chat.users.some(user => user.id === userId)  // Проверяем наличие пользователей
+            chat.users && chat.users.some(user => user.id === userId)
         );
 
-        // Возвращаем чаты и расшифровываем сообщения
         return userChats.map(chat => ({
             ...chat.toJSON(),
             chatName: chat.isGroup

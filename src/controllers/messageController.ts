@@ -38,13 +38,11 @@ export const getMessagesController = async (req: Request, res: Response) => {
     try {
         const messages = await getMessages(Number(chatId));
 
-        // Логируем шифрованные сообщения
         console.log("Encrypted messages from DB:", messages);
 
-        // Расшифровываем контент каждого сообщения
         const decryptedMessages = messages.map((message) => {
             const decryptedContent = decrypt(JSON.parse(message.content));
-            console.log("Decrypted message content:", decryptedContent); // Логируем расшифрованное сообщение
+            console.log("Decrypted message content:", decryptedContent);
             return {
                 ...message.toJSON(),
                 content: decryptedContent
