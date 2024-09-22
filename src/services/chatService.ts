@@ -115,7 +115,6 @@ export const getChatById = async (chatId: number) => {
 
 
 // Получение чатов пользователя
-// Получение чатов пользователя
 export const getChatsForUser = async (userId: number) => {
     try {
         const chats = await Chat.findAll({
@@ -131,13 +130,18 @@ export const getChatsForUser = async (userId: number) => {
                     as: 'messages',
                     attributes: ['id', 'content', 'createdAt', 'userId'],
                     include: [{ model: User, as: 'user', attributes: ['username'] }],
-                    order: [['createdAt', 'ASC']], // Добавляем сортировку по дате создания
                 }
             ],
             order: [['updatedAt', 'DESC']],
         });
 
-        return chats.map(chat => ({
+        // Фильтруем чаты, чтобы вернуть только те, где участвует текущий пользователь
+        const userChats = chats.filter(chat =>
+            chat.users && chat.users.some(user => user.id === userId)  // Проверяем наличие пользователей
+        );
+
+        // Возвращаем чаты и расшифровываем сообщения
+        return userChats.map(chat => ({
             ...chat.toJSON(),
             chatName: chat.isGroup
                 ? chat.name
