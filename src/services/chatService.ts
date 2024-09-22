@@ -115,6 +115,7 @@ export const getChatById = async (chatId: number) => {
 
 
 // Получение чатов пользователя
+// Получение чатов пользователя
 export const getChatsForUser = async (userId: number) => {
     try {
         const chats = await Chat.findAll({
@@ -130,6 +131,7 @@ export const getChatsForUser = async (userId: number) => {
                     as: 'messages',
                     attributes: ['id', 'content', 'createdAt', 'userId'],
                     include: [{ model: User, as: 'user', attributes: ['username'] }],
+                    order: [['createdAt', 'ASC']], // Добавляем сортировку по дате создания
                 }
             ],
             order: [['updatedAt', 'DESC']],
@@ -140,19 +142,21 @@ export const getChatsForUser = async (userId: number) => {
             chatName: chat.isGroup
                 ? chat.name
                 : (chat.users && chat.users.length > 0 ? chat.users.find(u => u.id !== userId)?.realname : 'Unknown'),
-            // Проверяем, есть ли сообщения, прежде чем их обработать
             messages: chat.messages
-                ? chat.messages.map((message: Message) => ({
-                    ...message.toJSON(),
-                    content: decrypt(JSON.parse(message.content))  // Расшифровываем сообщение
-                }))
-                : []  // Если сообщений нет, возвращаем пустой массив
+                ? chat.messages
+                    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+                    .map((message: Message) => ({
+                        ...message.toJSON(),
+                        content: decrypt(JSON.parse(message.content))
+                    }))
+                : []
         }));
     } catch (error) {
         console.error('Ошибка получения чатов для пользователя:', error);
         throw new Error('Не удалось получить чаты для пользователя');
     }
 };
+
 
 // Получение чата с сообщениями
 export const getChatWithMessages = async (chatId: number, userId: number) => {
