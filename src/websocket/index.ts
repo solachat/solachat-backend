@@ -5,6 +5,8 @@ import { getUserById } from '../services/userService';
 import Message from '../models/Message';
 import { createMessage } from '../services/messageService';
 import Chat from '../models/Chat';
+import { decrypt } from '../utils/encryptionUtils'; // Импорт дешифрования
+import { encrypt } from '../utils/encryptionUtils'; // Импорт шифрования
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
@@ -20,7 +22,7 @@ export const initWebSocketServer = (server: any) => {
 
     wss.on('connection', async (ws: WebSocket, req: any) => {
         const token = req.url?.split('token=')[1];
-        console.log('Received token:', token); // Логируем токен для проверки
+        console.log('Received token:', token);
 
         if (!token) {
             console.error('No token provided, closing connection.');
@@ -29,7 +31,7 @@ export const initWebSocketServer = (server: any) => {
         }
 
         try {
-            const decoded = jwt.verify(token, secret) as { id: number }; // Расшифровываем JWT
+            const decoded = jwt.verify(token, secret) as { id: number };
             console.log('Токен успешно декодирован:', decoded);
             const userId = decoded.id;
 
@@ -89,7 +91,10 @@ const handleMessage = async (userId: number, rawMessage: string) => {
             return;
         }
 
+        // Шифруем сообщение перед сохранением
         const message = await createMessage(userId, chatId, content);
+
+        // Вещаем зашифрованное сообщение
         broadcastMessage(chatId, message);
     } catch (error) {
         console.error(`Error handling message from user ${userId}:`, error);
@@ -97,19 +102,49 @@ const handleMessage = async (userId: number, rawMessage: string) => {
 };
 
 const broadcastMessage = (chatId: number, message: Message) => {
-    connectedUsers.forEach(({ ws }) => {
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-                type: 'NEW_MESSAGE',
-                chatId,
-                message: {
-                    id: message.id,
-                    content: message.content,
-                    createdAt: message.createdAt,
-                    senderId: message.userId
-                }
-            }));
+    // Ищем участников чата
+    Chat.findByPk(chatId, {
+        include: [
+            {
+                model: User,
+                attributes: ['id']
+            }
+        ]
+    }).then(chat => {
+        if (!chat) {
+            console.error(`Chat with ID ${chatId} not found`);
+            return;
         }
+
+        // Проверяем, что у чата есть участники
+        if (!chat.users || chat.users.length === 0) {
+            console.error(`No participants found for chat ID ${chatId}`);
+            return;
+        }
+
+        // Получаем IDs участников чата
+        const participantIds = chat.users.map(user => user.id);
+
+        // Передаем сообщение только участникам чата
+        connectedUsers.forEach(({ ws, userId }) => {
+            if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
+                // Дешифруем сообщение перед отправкой
+                const decryptedMessageContent = decrypt(JSON.parse(message.content));
+
+                ws.send(JSON.stringify({
+                    type: 'NEW_MESSAGE',
+                    chatId,
+                    message: {
+                        id: message.id,
+                        content: decryptedMessageContent,
+                        createdAt: message.createdAt,
+                        senderId: message.userId
+                    }
+                }));
+            }
+        });
+    }).catch(error => {
+        console.error(`Error fetching chat ID ${chatId}:`, error);
     });
 };
 

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { createMessage, getMessages } from '../services/messageService';
 import { UserRequest } from '../types/types';
 import { wss } from '../app';
+import { decrypt } from "../utils/encryptionUtils";
 
 export const sendMessageController = async (req: UserRequest, res: Response) => {
     const { chatId } = req.params;
@@ -11,10 +12,16 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
     try {
         const message = await createMessage(req.user!.id, Number(chatId), content, file);
 
-        // Отправляем сообщение через WebSocket всем подключенным клиентам
         wss.clients.forEach((client: any) => {
             if (client.readyState === client.OPEN) {
-                client.send(JSON.stringify({ type: 'newMessage', message }));
+                const decryptedMessageContent = decrypt(JSON.parse(message.content));
+                client.send(JSON.stringify({
+                    type: 'newMessage',
+                    message: {
+                        ...message.toJSON(),
+                        content: decryptedMessageContent
+                    }
+                }));
             }
         });
 
@@ -30,7 +37,21 @@ export const getMessagesController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
     try {
         const messages = await getMessages(Number(chatId));
-        res.status(200).json(messages);
+
+        // Логируем шифрованные сообщения
+        console.log("Encrypted messages from DB:", messages);
+
+        // Расшифровываем контент каждого сообщения
+        const decryptedMessages = messages.map((message) => {
+            const decryptedContent = decrypt(JSON.parse(message.content));
+            console.log("Decrypted message content:", decryptedContent); // Логируем расшифрованное сообщение
+            return {
+                ...message.toJSON(),
+                content: decryptedContent
+            };
+        });
+
+        res.status(200).json(decryptedMessages);
     } catch (error) {
         const err = error as Error;
         res.status(500).json({ message: err.message });

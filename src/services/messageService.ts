@@ -2,6 +2,7 @@ import Message from '../models/Message';
 import Chat from '../models/Chat';
 import User from '../models/User';
 import File from '../models/File';
+import { encrypt } from "../utils/encryptionUtils";
 
 export const createMessage = async (userId: number, chatId: number, content: string, file?: Express.Multer.File) => {
     const chat = await Chat.findByPk(chatId);
@@ -21,13 +22,14 @@ export const createMessage = async (userId: number, chatId: number, content: str
         filePath = uploadedFile.filePath;
     }
 
-    // Добавляем значение timestamp
+    const encryptedContent = encrypt(content);
+
     const message = await Message.create({
         chatId,
         userId,
-        content: content || '',
+        content: JSON.stringify(encryptedContent),
         filePath,
-        timestamp: new Date().toISOString(),  // Добавляем текущее время
+        timestamp: new Date().toISOString(),
     });
 
     return message;

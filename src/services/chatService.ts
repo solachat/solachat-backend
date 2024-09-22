@@ -1,8 +1,8 @@
 import Chat from '../models/Chat';
 import User from '../models/User';
 import Message from '../models/Message';
-import UserChats from '../models/UserChats'; // Добавляем модель промежуточной таблицы
 import { Op } from 'sequelize';
+import { decrypt } from '../utils/encryptionUtils';
 
 // Создание приватного чата
 export const createPrivateChat = async (user1Id: number, user2Id: number) => {
@@ -13,16 +13,14 @@ export const createPrivateChat = async (user1Id: number, user2Id: number) => {
                 {
                     model: User,
                     as: 'users',
-                    where: {
-                        id: { [Op.in]: [user1Id, user2Id] }
-                    },
-                    through: { attributes: [] }
+                    where: { id: { [Op.in]: [user1Id, user2Id] } },
+                    through: { attributes: [] },
                 }
             ]
         });
 
+        // Проверяем, существует ли уже чат между пользователями
         const existingChat = chats.find(chat => {
-            // Проверка на существование chat.users
             const userIds = chat.users ? chat.users.map(user => user.id) : [];
             return userIds.includes(user1Id) && userIds.includes(user2Id) && userIds.length === 2;
         });
@@ -32,6 +30,7 @@ export const createPrivateChat = async (user1Id: number, user2Id: number) => {
             return existingChat;
         }
 
+        // Создаем новый чат
         const newChat = await Chat.create({ isGroup: false });
         const user1 = await User.findByPk(user1Id);
         const user2 = await User.findByPk(user2Id);
@@ -75,8 +74,8 @@ export const getChatById = async (chatId: number) => {
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'realname', 'avatar', 'online'], // Все необходимые данные пользователя
-                    through: { attributes: [] }, // Убедитесь, что промежуточная таблица не мешает загрузке данных
+                    attributes: ['id', 'username', 'realname', 'avatar', 'online'],
+                    through: { attributes: [] },
                 },
                 {
                     model: Message,
@@ -98,28 +97,32 @@ export const getChatById = async (chatId: number) => {
             throw new Error('Чат не найден');
         }
 
-        // Проверка на существование поля users и его длину
-        if (!chat.isGroup && (!chat.users || chat.users.length !== 2)) {
-            throw new Error('Приватный чат должен содержать двух пользователей');
-        }
+        // Расшифровываем сообщения
+        const decryptedMessages = chat.messages?.map((message: Message) => ({
+            ...message.toJSON(),
+            content: decrypt(JSON.parse(message.content))  // Расшифровываем сообщение
+        }));
 
-        return chat;
+        return {
+            ...chat.toJSON(),
+            messages: decryptedMessages
+        };
     } catch (error) {
         console.error('Ошибка при получении чата по ID:', error);
         throw new Error('Не удалось получить чат с ID ' + chatId);
     }
 };
 
+
+// Получение чатов пользователя
 export const getChatsForUser = async (userId: number) => {
     try {
-        console.log(`Получен запрос на получение чатов для пользователя с ID: ${userId}`);
-
         const chats = await Chat.findAll({
             include: [
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'realname', 'avatar', 'online'], // Включаем все нужные поля
+                    attributes: ['id', 'username', 'realname', 'avatar', 'online'],
                     through: { attributes: [] },
                 },
                 {
@@ -136,7 +139,14 @@ export const getChatsForUser = async (userId: number) => {
             ...chat.toJSON(),
             chatName: chat.isGroup
                 ? chat.name
-                : (chat.users && chat.users.length > 0 ? chat.users.find(u => u.id !== userId)?.realname : 'Unknown')
+                : (chat.users && chat.users.length > 0 ? chat.users.find(u => u.id !== userId)?.realname : 'Unknown'),
+            // Проверяем, есть ли сообщения, прежде чем их обработать
+            messages: chat.messages
+                ? chat.messages.map((message: Message) => ({
+                    ...message.toJSON(),
+                    content: decrypt(JSON.parse(message.content))  // Расшифровываем сообщение
+                }))
+                : []  // Если сообщений нет, возвращаем пустой массив
         }));
     } catch (error) {
         console.error('Ошибка получения чатов для пользователя:', error);
@@ -154,7 +164,7 @@ export const getChatWithMessages = async (chatId: number, userId: number) => {
                     as: 'users',
                     attributes: ['id', 'username', 'realname', 'avatar'],
                     through: { attributes: [] },
-                    where: { id: userId } // Проверяем, что пользователь является участником чата
+                    where: { id: userId }
                 },
                 {
                     model: Message,
@@ -175,7 +185,16 @@ export const getChatWithMessages = async (chatId: number, userId: number) => {
             throw new Error('Chat not found or access denied');
         }
 
-        return chat;
+        // Расшифровка сообщений перед отправкой
+        const decryptedMessages = chat.messages?.map((message: Message) => ({
+            ...message.toJSON(),
+            content: decrypt(JSON.parse(message.content))  // Расшифровываем сообщение
+        }));
+
+        return {
+            ...chat.toJSON(),
+            messages: decryptedMessages
+        };
     } catch (error) {
         console.error('Error fetching chat with messages:', error);
         throw new Error('Failed to fetch chat with messages');
