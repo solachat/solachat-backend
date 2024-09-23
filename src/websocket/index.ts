@@ -97,7 +97,7 @@ const handleMessage = async (userId: number, rawMessage: string) => {
         }
 
         // Шифруем сообщение перед сохранением
-        const message = await createMessage(userId, chatId, content);
+        const message = await createMessage(userId, chatId, content, 'ws', 'localhost'); // или другие значения для protocol и host
 
         // Вещаем зашифрованное сообщение
         broadcastMessage(chatId, message);

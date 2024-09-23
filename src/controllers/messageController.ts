@@ -7,10 +7,9 @@ import path from "path";
 import File from '../models/File';
 import { ensureDirectoryExists, getDestination } from '../config/uploadConfig';
 
-// uploadFileController
 export const uploadFileController = async (req: UserRequest, res: Response) => {
     const file = req.file;
-    const chatId = req.body.chatId;  // Извлекаем chatId из тела запроса
+    const chatId = req.body.chatId;
 
     if (!file) {
         return res.status(400).json({ message: 'File must be provided' });
@@ -21,44 +20,53 @@ export const uploadFileController = async (req: UserRequest, res: Response) => {
     }
 
     try {
-        // Определяем путь к файлу на основе его расширения
         const fileExtension = path.extname(file.originalname).slice(1);
-        const destinationPath = getDestination(fileExtension); // Используем getDestination
-        // Убедимся, что директория существует
+        const destinationPath = getDestination(fileExtension);
         ensureDirectoryExists(destinationPath);
+
+        // Сохраняем **относительный** путь в базу данных
+        const relativeFilePath = `${destinationPath}/${file.filename}`;
+        console.log(`Relative file path to save in DB: ${relativeFilePath}`);
 
         // Сохраняем информацию о файле в базе данных
         const uploadedFile = await File.create({
-            filename: file.filename,
+            fileName: file.filename, // Здесь используется fileName вместо filename
             fileType: fileExtension,
-            filePath: `${destinationPath}/${file.filename}`,  // Путь с учетом директории
+            filePath: relativeFilePath,  // Здесь сохраняем только относительный путь
             userId: req.user!.id,
-            chatId: Number(chatId),  // Передаем chatId здесь
+            chatId: Number(chatId),
         });
 
-        // Возвращаем информацию о загруженном файле
-        res.status(200).json({ filePath: uploadedFile.filePath });
+        const fileUrl = `${req.protocol}://${req.get('host')}/${relativeFilePath}`;
+        res.status(200).json({ filePath: fileUrl });
     } catch (error) {
-        const err = error as Error;
-        console.error('Error uploading file:', err.message);
-        res.status(500).json({ message: err.message });
+        console.error('Error uploading file:', error);
+        res.status(500).json({ message: 'Error uploading file' });
     }
 };
 
-// sendMessageController
+
 export const sendMessageController = async (req: UserRequest, res: Response) => {
     const { chatId } = req.params;
     const { content, filePath } = req.body;
-
-    console.log('Received filePath from client:', filePath); // Логируем путь, пришедший с фронта
 
     if (!content && !filePath) {
         return res.status(400).json({ message: 'Message content or file path must be provided' });
     }
 
     try {
-        // Создаем сообщение с текстом и/или файлом
-        const message = await createMessage(req.user!.id, Number(chatId), content || '', filePath);
+        // Передаем протокол и хост в функцию создания сообщения
+        const message = await createMessage(
+            req.user!.id,
+            Number(chatId),
+            content || '',
+            req.protocol,
+            req.get('host') || '',
+            filePath
+        );
+
+        // Загрузим информацию о файле, если она есть
+        const file = message.fileId ? await File.findByPk(message.fileId) : null;
 
         // Отправка сообщения через WebSocket
         wss.clients.forEach((client: any) => {
@@ -68,14 +76,25 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
                     type: 'newMessage',
                     message: {
                         ...message.toJSON(),
-                        content: decryptedMessageContent || message.filePath,
-                        filePath: message.filePath // Передаем filePath к сообщению
+                        content: decryptedMessageContent || null,
+                        attachment: file ? {
+                            fileName: file.fileName,  // Используем fileName вместо filename
+                            filePath: file.filePath,
+                            fileType: file.fileType,
+                        } : null,
                     }
                 }));
             }
         });
 
-        res.status(201).json(message);
+        res.status(201).json({
+            ...message.toJSON(),
+            attachment: file ? {
+                fileName: file.fileName,  // Используем fileName вместо filename
+                filePath: file.filePath,
+                fileType: file.fileType,
+            } : null,
+        });
     } catch (error) {
         const err = error as Error;
         console.error('Error creating message:', err.message);

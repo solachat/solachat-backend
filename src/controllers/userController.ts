@@ -24,7 +24,7 @@ export const registerUser = async (req: Request, res: Response) => {
         const user = await createUser(email, password, publicKey, username, realname);
         logger.info(`User registered: ${user.email}, Wallet: ${publicKey}`);
 
-        const token = jwt.sign({ id: user.id, email: user.email, username: user.username }, secret, { expiresIn: '1h' });
+        const token = jwt.sign({ id: user.id, email: user.email, username: user.username }, secret, { expiresIn: '24h' });
         res.status(201).json({ token, user });
     } catch (error) {
         const err = error as Error;
@@ -50,7 +50,7 @@ export const loginUser = async (req: Request, res: Response) => {
         user.lastLogin = new Date();
         await user.save();
 
-        const token = jwt.sign({ id: user.id, email: user.email, username: user.username }, secret, { expiresIn: '1h' });
+        const token = jwt.sign({ id: user.id, email: user.email, username: user.username }, secret, { expiresIn: '24h' });
         return res.json({ token, user: { username: user.username, email: user.email, lastLogin: user.lastLogin } });
     } catch (error) {
         const err = error as Error;

@@ -1,6 +1,5 @@
 import sequelize from '../config/db';
 
-// Импортируем модели
 import '../models/User';
 import '../models/Transaction';
 import '../models/Message';

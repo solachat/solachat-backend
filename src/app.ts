@@ -11,6 +11,7 @@ import { initWebSocketServer } from './websocket';
 import WebSocket from 'ws';
 import { Socket } from 'net';  // Импортируем Socket
 import './models/associations';
+import downloadRoutes from "./routes/downloadRoutes";
 
 const app = express();
 
@@ -31,6 +32,7 @@ server.on('upgrade', (request, socket: Socket, head) => {  // Добавляем
 initWebSocketServer(wss);
 
 app.use('/uploads', express.static(uploadsPath));
+app.use('/download', downloadRoutes);
 app.use(cors());
 app.use(express.json());
 

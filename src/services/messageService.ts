@@ -6,42 +6,83 @@ import { encrypt } from "../utils/encryptionUtils";
 import path from "path";
 import fs from "fs";
 
-// Создание сообщения
-export const createMessage = async (userId: number, chatId: number, content: string, filePath?: string) => {
+export const createMessage = async (
+    userId: number,
+    chatId: number,
+    content: string,
+    protocol: string,
+    host: string,
+    filePath?: string
+) => {
+    console.log('Starting message creation process...');
+    console.log('Received parameters:', { userId, chatId, content, filePath });
+
     const chat = await Chat.findByPk(chatId);
     const user = await User.findByPk(userId);
 
-    if (!chat || !user) throw new Error('Chat or user not found');
+    if (!chat) {
+        console.error(`Chat with ID ${chatId} not found`);
+        throw new Error('Chat not found');
+    } else {
+        console.log(`Chat found: ${chatId}`);
+    }
+
+    if (!user) {
+        console.error(`User with ID ${userId} not found`);
+        throw new Error('User not found');
+    } else {
+        console.log(`User found: ${userId}`);
+    }
 
     let fileId = null;
 
-    // Проверяем, есть ли filePath
     if (filePath) {
-        console.log('Looking for file with path:', filePath); // Логируем путь
-        const file = await File.findOne({ where: { filePath } });
+        console.log('File path provided:', filePath);
 
-        // Проверяем, найден ли файл
+        // Удаляем протокол и хост для поиска в базе данных
+        let relativeFilePath = filePath.replace(`${protocol}://${host}`, '');
+
+        // Убираем ведущий слэш, если он есть
+        if (relativeFilePath.startsWith('/')) {
+            relativeFilePath = relativeFilePath.slice(1);
+        }
+
+        console.log('Relative file path for DB lookup:', relativeFilePath);
+
+        // Поиск файла в базе данных
+        const file = await File.findOne({ where: { filePath: relativeFilePath } });
+
         if (file) {
-            fileId = file.id; // Получаем id файла
-            console.log('Found file with id:', fileId); // Логируем id файла
+            fileId = file.id;
+            console.log('File found in DB:', file);
+            console.log('File ID:', fileId);
         } else {
+            console.error('File not found in DB for path:', relativeFilePath);
             throw new Error('File not found in database');
         }
+    } else {
+        console.log('No file path provided, creating message without file attachment');
     }
 
-    // Шифруем контент сообщения
+    console.log('Encrypting message content...');
     const encryptedContent = encrypt(content);
 
-    // Создаем новое сообщение
-    const message = await Message.create({
-        chatId,
-        userId,
-        content: JSON.stringify(encryptedContent),
-        filePath: filePath,
-        timestamp: new Date().toISOString(),
-    });
+    try {
+        console.log('Saving message to database...');
+        const message = await Message.create({
+            chatId,
+            userId,
+            content: JSON.stringify(encryptedContent),
+            fileId,  // Передаем fileId, если он есть
+            timestamp: new Date().toISOString(),
+        });
 
-    return message;
+        console.log('Message saved successfully:', message);
+        return message;
+    } catch (error) {
+        console.error('Error creating message in DB:', error);
+        throw new Error('Failed to create message');
+    }
 };
 
 
@@ -56,7 +97,7 @@ export const getMessages = async (chatId: number) => {
             {
                 model: File,
                 as: 'attachment',
-                attributes: ['filename', 'filePath', 'fileType'],
+                attributes: ['fileName', 'filePath', 'fileType'],
             }
         ],
         order: [['createdAt', 'ASC']]

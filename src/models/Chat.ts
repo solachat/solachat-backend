@@ -14,7 +14,7 @@ interface ChatAttributes {
 interface ChatCreationAttributes extends Optional<ChatAttributes, 'id'> {}
 
 class Chat extends Model<ChatAttributes, ChatCreationAttributes> implements ChatAttributes {
-    public id!: number; // Добавляем поле id
+    public id!: number;
     public name?: string;
     public isGroup!: boolean;
     public readonly createdAt!: Date;

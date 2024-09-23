@@ -3,6 +3,7 @@ import User from '../models/User';
 import Message from '../models/Message';
 import { Op } from 'sequelize';
 import { decrypt } from '../utils/encryptionUtils';
+import file from "../models/File";
 
 export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     try {
@@ -121,8 +122,11 @@ export const getChatsForUser = async (userId: number) => {
                 {
                     model: Message,
                     as: 'messages',
-                    attributes: ['id', 'content', 'filePath', 'createdAt', 'userId'],
-                    include: [{ model: User, as: 'user', attributes: ['username'] }],
+                    attributes: ['id', 'content', 'fileId', 'createdAt', 'userId'],
+                    include: [
+                        { model: User, as: 'user', attributes: ['username'] },
+                        { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] } // Правильная ассоциация с File
+                    ],
                 }
             ],
             order: [['updatedAt', 'DESC']],
@@ -140,10 +144,21 @@ export const getChatsForUser = async (userId: number) => {
             messages: chat.messages
                 ? chat.messages
                     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-                    .map((message: Message) => ({
-                        ...message.toJSON(),
-                        content: decrypt(JSON.parse(message.content))
-                    }))
+                    .map((message: Message) => {
+                        const decryptedContent = decrypt(JSON.parse(message.content));
+
+                        // Добавляем информацию о прикреплённом файле, если он есть
+                        const attachment = message.attachment ? {
+                            fileName: message.attachment.fileName,
+                            filePath: message.attachment.filePath
+                        } : null;
+
+                        return {
+                            ...message.toJSON(),
+                            content: decryptedContent,
+                            attachment
+                        };
+                    })
                 : []
         }));
     } catch (error) {
@@ -151,7 +166,6 @@ export const getChatsForUser = async (userId: number) => {
         throw new Error('Не удалось получить чаты для пользователя');
     }
 };
-
 
 // Получение чата с сообщениями
 export const getChatWithMessages = async (chatId: number, userId: number) => {

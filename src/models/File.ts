@@ -5,7 +5,7 @@ import Chat from './Chat';
 
 class File extends Model {
     public id!: number;
-    public filename!: string;
+    public fileName!: string;
     public fileType!: string;
     public filePath!: string;
     public userId!: number;
@@ -16,7 +16,7 @@ class File extends Model {
 
 File.init(
     {
-        filename: {
+        fileName: {
             type: DataTypes.STRING,
             allowNull: false,
         },
