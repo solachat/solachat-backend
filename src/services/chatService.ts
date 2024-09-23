@@ -121,7 +121,7 @@ export const getChatsForUser = async (userId: number) => {
                 {
                     model: Message,
                     as: 'messages',
-                    attributes: ['id', 'content', 'createdAt', 'userId'],
+                    attributes: ['id', 'content', 'filePath', 'createdAt', 'userId'],
                     include: [{ model: User, as: 'user', attributes: ['username'] }],
                 }
             ],

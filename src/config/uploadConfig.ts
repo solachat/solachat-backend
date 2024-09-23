@@ -5,40 +5,45 @@ import { UserRequest } from '../types/types';
 
 const ensureDirectoryExists = (dir: string) => {
     if (!fs.existsSync(dir)) {
+        console.log(`Directory ${dir} doesn't exist. Creating...`);
         fs.mkdirSync(dir, { recursive: true });
     }
 };
 
-const getDestination = (fileType: string) => {
-    switch (fileType) {
-        case 'avatar':
-            return 'uploads/avatars';
-        case 'document':
+const getDestination = (fileExtension: string) => {
+    switch (fileExtension) {
+        case 'jpeg':
+        case 'jpg':
+        case 'png':
+        case 'gif':
+            return 'uploads/images';
+        case 'pdf':
+        case 'doc':
+        case 'docx':
+        case 'txt':
             return 'uploads/documents';
-        case 'video':
+        case 'mp4':
+        case 'avi':
+        case 'mov':
             return 'uploads/videos';
-        case 'audio':
+        case 'mp3':
+        case 'wav':
             return 'uploads/audio';
+        case 'zip':
+        case 'rar':
+            return 'uploads/archives';
         default:
             return 'uploads/others';
     }
 };
 
+// Настройка хранилища для multer
 const storage = multer.diskStorage({
     destination: (req: UserRequest, file, cb) => {
-        let fileType = req.body.fileType;
+        const fileExtension = path.extname(file.originalname).toLowerCase().slice(1)
 
-        if (!fileType) {
-            const imageTypes = /jpeg|jpg|png|gif/;
-            const extname = path.extname(file.originalname).toLowerCase();
-            if (imageTypes.test(extname)) {
-                fileType = 'avatar';
-            } else {
-                fileType = 'others';
-            }
-        }
-
-        const destinationPath = getDestination(fileType);
+        // Определяем папку назначения
+        const destinationPath = getDestination(fileExtension);
         ensureDirectoryExists(destinationPath);
 
         cb(null, destinationPath);
@@ -53,30 +58,21 @@ const storage = multer.diskStorage({
     }
 });
 
-
+// Фильтр файлов по допустимым типам
 const fileFilter = (req: UserRequest, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-    const imageTypes = /jpeg|jpg|png|gif/;
-    const documentTypes = /pdf|doc|docx|xls|xlsx/;
-    const videoTypes = /mp4|mov|avi|mkv/;
-    const audioTypes = /mp3|wav|ogg/;
-
-    const extname = path.extname(file.originalname).toLowerCase();
-    const isImage = imageTypes.test(extname);
-    const isDocument = documentTypes.test(extname);
-    const isVideo = videoTypes.test(extname);
-    const isAudio = audioTypes.test(extname);
-
-    const validMimeTypes = isImage || isDocument || isVideo || isAudio;
-
-    if (validMimeTypes) {
+    const validTypes = ['jpeg', 'jpg', 'png', 'gif', 'pdf', 'doc', 'docx', 'txt', 'mp4', 'avi', 'mov', 'mp3', 'wav', 'zip', 'rar'];
+    const extname = path.extname(file.originalname).toLowerCase().slice(1);
+    if (validTypes.includes(extname)) {
         cb(null, true);
     } else {
-        cb(new Error('Invalid file type. Only images, documents, videos, and audio files are allowed.'));
+        cb(new Error('Invalid file type. Only images, documents, videos, audio files, and zip/rar archives are allowed.'))
     }
 };
 
 export const upload = multer({
     storage,
-    limits: { fileSize: 10 * 1024 * 1024 },
+    limits: { fileSize: 50 * 1024 * 1024 }, // Лимит на размер файла (50MB)
     fileFilter
 });
+
+export { ensureDirectoryExists, getDestination };
