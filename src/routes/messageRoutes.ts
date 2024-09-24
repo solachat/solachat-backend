@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import { sendMessageController, getMessagesController, uploadFileController } from '../controllers/messageController';
+import { sendMessageController, getMessagesController } from '../controllers/messageController';
 import { authenticateToken } from '../middleware/authMiddleware';
 import { upload } from '../config/uploadConfig';
+import {uploadFileController} from "../controllers/fileController";
 
 const router = Router();
 

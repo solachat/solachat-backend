@@ -2,7 +2,7 @@ import Message from '../models/Message';
 import Chat from '../models/Chat';
 import User from '../models/User';
 import File from '../models/File';
-import { encrypt } from "../utils/encryptionUtils";
+import { encryptMessage } from "../encryption/messageEncryption";
 import path from "path";
 import fs from "fs";
 
@@ -65,7 +65,7 @@ export const createMessage = async (
     }
 
     console.log('Encrypting message content...');
-    const encryptedContent = encrypt(content);
+    const encryptedContent = encryptMessage(content);
 
     try {
         console.log('Saving message to database...');

@@ -58,7 +58,6 @@ const storage = multer.diskStorage({
     }
 });
 
-// Фильтр файлов по допустимым типам
 const fileFilter = (req: UserRequest, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
     const validTypes = ['jpeg', 'jpg', 'png', 'gif', 'pdf', 'doc', 'docx', 'txt', 'mp4', 'avi', 'mov', 'mp3', 'wav', 'zip', 'rar'];
     const extname = path.extname(file.originalname).toLowerCase().slice(1);
@@ -71,7 +70,7 @@ const fileFilter = (req: UserRequest, file: Express.Multer.File, cb: multer.File
 
 export const upload = multer({
     storage,
-    limits: { fileSize: 50 * 1024 * 1024 }, // Лимит на размер файла (50MB)
+    limits: { fileSize: 50 * 1024 * 1024 },
     fileFilter
 });
 

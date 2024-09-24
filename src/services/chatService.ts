@@ -2,7 +2,7 @@ import Chat from '../models/Chat';
 import User from '../models/User';
 import Message from '../models/Message';
 import { Op } from 'sequelize';
-import { decrypt } from '../utils/encryptionUtils';
+import { decryptMessage } from '../encryption/messageEncryption';
 import file from "../models/File";
 
 export const createPrivateChat = async (user1Id: number, user2Id: number) => {
@@ -95,7 +95,7 @@ export const getChatById = async (chatId: number) => {
 
         const decryptedMessages = chat.messages?.map((message: Message) => ({
             ...message.toJSON(),
-            content: decrypt(JSON.parse(message.content))
+            content: decryptMessage(JSON.parse(message.content))
         }));
 
         return {
@@ -125,7 +125,7 @@ export const getChatsForUser = async (userId: number) => {
                     attributes: ['id', 'content', 'fileId', 'createdAt', 'userId'],
                     include: [
                         { model: User, as: 'user', attributes: ['username'] },
-                        { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] } // Правильная ассоциация с File
+                        { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] }
                     ],
                 }
             ],
@@ -145,7 +145,7 @@ export const getChatsForUser = async (userId: number) => {
                 ? chat.messages
                     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
                     .map((message: Message) => {
-                        const decryptedContent = decrypt(JSON.parse(message.content));
+                        const decryptedContent = decryptMessage(JSON.parse(message.content));
 
                         // Добавляем информацию о прикреплённом файле, если он есть
                         const attachment = message.attachment ? {
@@ -198,10 +198,9 @@ export const getChatWithMessages = async (chatId: number, userId: number) => {
             throw new Error('Chat not found or access denied');
         }
 
-        // Расшифровка сообщений перед отправкой
         const decryptedMessages = chat.messages?.map((message: Message) => ({
             ...message.toJSON(),
-            content: decrypt(JSON.parse(message.content))  // Расшифровываем сообщение
+            content: decryptMessage(JSON.parse(message.content))
         }));
 
         return {

@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import {Op} from "sequelize";
+import {getDestination} from "../config/uploadConfig";
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
@@ -183,12 +184,12 @@ export const updateAvatar = async (req: UserRequest, res: Response) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const uploadsDir = path.join(__dirname, '../../uploads/avatars');
-        ensureDirectoryExists(uploadsDir);
+        const fileExtension = path.extname(req.file.originalname).slice(1);
+        const destinationPath = getDestination(fileExtension);
 
-        const uploadedFilePath = path.join(uploadsDir, req.file.filename);
+        ensureDirectoryExists(destinationPath);
 
-        // Создание хэша для файла аватара
+        const uploadedFilePath = path.join(destinationPath, req.file.filename);
         const uploadedFileHash = await hashFile(uploadedFilePath);
 
         const existingUserWithSameHash = await User.findOne({ where: { avatarHash: uploadedFileHash } });
@@ -205,7 +206,7 @@ export const updateAvatar = async (req: UserRequest, res: Response) => {
             });
         }
 
-        const avatarUrl = `${req.protocol}://${req.get('host')}/uploads/avatars/${req.file.filename}`;
+        const avatarUrl = `${req.protocol}://${req.get('host')}/${destinationPath}/${req.file.filename}`;
         user.avatar = avatarUrl;
         user.avatarHash = uploadedFileHash;
         await user.save();
@@ -217,6 +218,7 @@ export const updateAvatar = async (req: UserRequest, res: Response) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+
 
 export const getUserAvatars = async (req: Request, res: Response) => {
     try {

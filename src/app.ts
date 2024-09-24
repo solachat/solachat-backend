@@ -11,7 +11,7 @@ import { initWebSocketServer } from './websocket';
 import WebSocket from 'ws';
 import { Socket } from 'net';  // Импортируем Socket
 import './models/associations';
-import downloadRoutes from "./routes/downloadRoutes";
+import downloadRoutes from "./routes/fileRoutes";
 
 const app = express();
 
@@ -23,7 +23,7 @@ const server = http.createServer(app);
 // WebSocket сервер инициализируется один раз
 export const wss = new WebSocket.Server({ noServer: true });
 
-server.on('upgrade', (request, socket: Socket, head) => {  // Добавляем тип для socket
+server.on('upgrade', (request, socket: Socket, head) => {
     wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request);
     });

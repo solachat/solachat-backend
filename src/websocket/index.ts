@@ -5,7 +5,7 @@ import { getUserById } from '../services/userService';
 import Message from '../models/Message';
 import { createMessage } from '../services/messageService';
 import Chat from '../models/Chat';
-import { decrypt } from '../utils/encryptionUtils';
+import { decryptMessage } from '../encryption/messageEncryption';
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
@@ -143,7 +143,7 @@ const broadcastMessage = async (chatId: number, message: Message) => {
                     type: 'newMessage',
                     message: {
                         id: message.id,
-                        content: decrypt(JSON.parse(message.content)),
+                        content: decryptMessage(JSON.parse(message.content)),
                         createdAt: message.createdAt,
                         sender: {
                             id: sender.id,

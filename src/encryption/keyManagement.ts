@@ -1,13 +1,5 @@
 import crypto from 'crypto';
 
-export const generateRSAKeys = () => {
-    const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
-        modulusLength: 2048,
-    });
-
-    return { publicKey, privateKey };
-};
-
 export const encryptWithPublicKey = (publicKey: string, message: string) => {
     const buffer = Buffer.from(message);
     return crypto.publicEncrypt(publicKey, buffer).toString('base64');

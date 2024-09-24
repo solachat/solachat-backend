@@ -1,29 +1,56 @@
 import crypto from 'crypto';
 
-const algorithm = 'aes-256-gcm';
-const key = process.env.MESSAGE_ENCRYPTION_KEY || crypto.randomBytes(32); 
-const iv = crypto.randomBytes(12);
+const encryptionAlgorithm = 'aes-256-gcm';
+const secretKey = process.env.AES_SECRET_KEY;
+const hmacKey = process.env.HMAC_SECRET_KEY;
 
-export const encryptMessage = (message: string) => {
-    const cipher = crypto.createCipheriv(algorithm, key, iv);
-    const encrypted = Buffer.concat([cipher.update(message), cipher.final()]);
+if (!secretKey || secretKey.length !== 32) {
+    throw new Error('Invalid AES secret key length. Key must be 32 characters long.');
+}
+
+if (!hmacKey || hmacKey.length !== 32) {
+    throw new Error('Invalid HMAC secret key length. Key must be 32 characters long.');
+}
+
+export const encryptMessage = (text: string) => {
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv(encryptionAlgorithm, secretKey, iv);
+
+    const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
     const authTag = cipher.getAuthTag();
+
+    const hmac = crypto.createHmac('sha256', hmacKey);
+    hmac.update(iv);
+    hmac.update(encrypted);
+    const hmacDigest = hmac.digest('hex');
 
     return {
         iv: iv.toString('hex'),
         content: encrypted.toString('hex'),
-        tag: authTag.toString('hex'),
+        authTag: authTag.toString('hex'),
+        hmac: hmacDigest
     };
 };
 
-export const decryptMessage = (encryptedMessage: { iv: string, content: string, tag: string }) => {
-    const decipher = crypto.createDecipheriv(algorithm, key, Buffer.from(encryptedMessage.iv, 'hex'));
-    decipher.setAuthTag(Buffer.from(encryptedMessage.tag, 'hex'));
+export const decryptMessage = (hash: { iv: string, content: string, authTag: string, hmac: string }) => {
+    const iv = Buffer.from(hash.iv, 'hex');
+    const encryptedContent = Buffer.from(hash.content, 'hex');
+    const authTag = Buffer.from(hash.authTag, 'hex');
 
-    const decrypted = Buffer.concat([
-        decipher.update(Buffer.from(encryptedMessage.content, 'hex')),
-        decipher.final(),
-    ]);
+    const hmac = crypto.createHmac('sha256', hmacKey);
+    hmac.update(iv); // Проверяем сначала IV
+    hmac.update(encryptedContent);
+    const hmacDigest = hmac.digest('hex');
 
-    return decrypted.toString();
+    if (hmacDigest !== hash.hmac) {
+        throw new Error('Data integrity check failed: HMAC mismatch.');
+    }
+
+    // Расшифровка
+    const decipher = crypto.createDecipheriv(encryptionAlgorithm, secretKey, iv);
+    decipher.setAuthTag(authTag); // Устанавливаем тэг аутентификации
+
+    const decrypted = Buffer.concat([decipher.update(encryptedContent), decipher.final()]);
+
+    return decrypted.toString('utf8');
 };
