@@ -4,7 +4,7 @@ import Chat from './Chat'; // Включаем Chat для ассоциаций
 
 class User extends Model {
     public id!: number;
-    public public_key!: string;
+    public public_key?: string;
     public email!: string;
     public password!: string;
     public username!: string;
@@ -12,8 +12,6 @@ class User extends Model {
     public aboutMe?: string;
     public lastLogin!: Date;
     public shareEmail!: boolean;
-    public shareCountry!: boolean;
-    public shareTimezone!: boolean;
     public avatar?: string;
     public avatarHash!: string;
     public rating?: number;
@@ -26,7 +24,7 @@ User.init(
     {
         public_key: {
             type: DataTypes.STRING,
-            allowNull: false,
+            allowNull: true,
             unique: true,
         },
         email: {
@@ -60,16 +58,6 @@ User.init(
             defaultValue: DataTypes.NOW,
         },
         shareEmail: {
-            type: DataTypes.BOOLEAN,
-            allowNull: false,
-            defaultValue: false,
-        },
-        shareCountry: {
-            type: DataTypes.BOOLEAN,
-            allowNull: false,
-            defaultValue: false,
-        },
-        shareTimezone: {
             type: DataTypes.BOOLEAN,
             allowNull: false,
             defaultValue: false,

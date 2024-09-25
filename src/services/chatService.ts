@@ -26,7 +26,6 @@ export const createPrivateChat = async (user1Id: number, user2Id: number) => {
         });
 
         if (existingChat) {
-            console.log('Чат между этими пользователями уже существует');
             return existingChat;
         }
 
@@ -42,7 +41,6 @@ export const createPrivateChat = async (user1Id: number, user2Id: number) => {
 
         return newChat;
     } catch (error) {
-        console.error('Ошибка создания приватного чата:', error);
         throw new Error('Не удалось создать приватный чат');
     }
 };
@@ -59,7 +57,6 @@ export const createGroupChat = async (userIds: number[], chatName: string) => {
         await chat.addUsers(users);
         return chat;
     } catch (error) {
-        console.error('Error creating group chat:', error);
         throw new Error('Failed to create group chat');
     }
 };
@@ -77,7 +74,7 @@ export const getChatById = async (chatId: number) => {
                 {
                     model: Message,
                     as: 'messages',
-                    attributes: ['id', 'content', 'createdAt'],
+                    attributes: ['id', 'content', 'createdAt', 'isEdited'],
                     include: [
                         {
                             model: User,
@@ -104,11 +101,9 @@ export const getChatById = async (chatId: number) => {
             messages: decryptedMessages
         };
     } catch (error) {
-        console.error('Ошибка при получении чата по ID:', error);
         throw new Error('Не удалось получить чат с ID ' + chatId);
     }
 };
-
 
 export const getChatsForUser = async (userId: number) => {
     try {
@@ -123,7 +118,7 @@ export const getChatsForUser = async (userId: number) => {
                 {
                     model: Message,
                     as: 'messages',
-                    attributes: ['id', 'content', 'fileId', 'createdAt', 'userId'],
+                    attributes: ['id', 'content', 'fileId', 'createdAt', 'userId', 'isEdited'],
                     include: [
                         { model: User, as: 'user', attributes: ['username'] },
                         { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] }
@@ -147,8 +142,6 @@ export const getChatsForUser = async (userId: number) => {
                     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
                     .map((message: Message) => {
                         const decryptedContent = decryptMessage(JSON.parse(message.content));
-
-                        // Добавляем информацию о прикреплённом файле, если он есть
                         const attachment = message.attachment ? {
                             fileName: message.attachment.fileName,
                             filePath: message.attachment.filePath
@@ -163,12 +156,10 @@ export const getChatsForUser = async (userId: number) => {
                 : []
         }));
     } catch (error) {
-        console.error('Ошибка получения чатов для пользователя:', error);
         throw new Error('Не удалось получить чаты для пользователя');
     }
 };
 
-// Получение чата с сообщениями
 export const getChatWithMessages = async (chatId: number, userId: number) => {
     try {
         const chat = await Chat.findByPk(chatId, {
@@ -183,7 +174,7 @@ export const getChatWithMessages = async (chatId: number, userId: number) => {
                 {
                     model: Message,
                     as: 'messages',
-                    attributes: ['id', 'content', 'createdAt'],
+                    attributes: ['id', 'content', 'createdAt', 'isEdited'],
                     include: [
                         {
                             model: User,
@@ -209,41 +200,30 @@ export const getChatWithMessages = async (chatId: number, userId: number) => {
             messages: decryptedMessages
         };
     } catch (error) {
-        console.error('Error fetching chat with messages:', error);
         throw new Error('Failed to fetch chat with messages');
     }
 };
 
 export const deleteChat = async (chatId: number) => {
     try {
-        // Получаем все сообщения, связанные с чатом
         const messages = await Message.findAll({ where: { chatId } });
 
-        // Удаляем все файлы, прикрепленные к сообщениям
         for (const message of messages) {
             if (message.fileId) {
                 const fileRecord = await file.findOne({ where: { id: message.fileId } });
                 if (fileRecord) {
-                    // Удаляем файл с диска
                     fs.unlinkSync(fileRecord.filePath);
-                    // Удаляем запись о файле из базы данных
                     await fileRecord.destroy();
                 }
             }
         }
 
-        // Удаляем все сообщения, связанные с чатом
         await Message.destroy({ where: { chatId } });
 
         await file.destroy({ where: { chatId } });
 
-        // Теперь можно безопасно удалить сам чат
         await Chat.destroy({ where: { id: chatId } });
     } catch (error) {
-        console.error('Ошибка при удалении чата:', error);
         throw new Error('Не удалось удалить чат');
     }
 };
-
-
-

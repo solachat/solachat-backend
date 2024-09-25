@@ -37,7 +37,6 @@ const getDestination = (fileExtension: string) => {
     }
 };
 
-// Настройка хранилища для multer
 const storage = multer.diskStorage({
     destination: (req: UserRequest, file, cb) => {
         const fileExtension = path.extname(file.originalname).toLowerCase().slice(1)

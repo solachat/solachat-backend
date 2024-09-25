@@ -103,47 +103,52 @@ export const editMessageController = async (req: UserRequest, res: Response) => 
     }
 
     try {
+        // Получаем сообщение из базы данных
         const message = await getMessageById(Number(messageId));
 
         if (!message) {
-            return res.status(404).json({ message: 'Сообщение не найдено' });
+            return res.status(404).json({ message: 'Сообщение не найдено.' });
         }
 
+        // Проверка, что пользователь является автором сообщения
         if (message.userId !== req.user!.id) {
-            return res.status(403).json({ message: 'Вы не можете редактировать это сообщение' });
+            return res.status(403).json({ message: 'Вы не можете редактировать это сообщение.' });
         }
 
-        // Шифрование сообщения
+        // Шифруем новое содержимое сообщения
         const encryptedContent = encryptMessage(content);
 
-        // Преобразуем объект с зашифрованными данными в строку для сохранения в БД
+        // Обновляем содержимое сообщения в базе данных
         await updateMessageContent(Number(messageId), {
-            content: JSON.stringify(encryptedContent), // Сохраняем объект в виде строки
-            isEdited: true, // Устанавливаем, что сообщение отредактировано
+            content: JSON.stringify(encryptedContent), // Сохраняем зашифрованное сообщение
+            isEdited: true, // Помечаем сообщение как отредактированное
         });
 
-        // Расшифровываем контент для WebSocket-сообщения
-        const decryptedMessageContent = decryptMessage(encryptedContent); // Передаем объект, не строку
+        // Расшифровываем содержимое для отправки через WebSocket
+        const decryptedMessageContent = decryptMessage(encryptedContent);
 
-        // Отправляем обновление через WebSocket
+        // Отправляем обновленное сообщение через WebSocket всем участникам чата
         wss.clients.forEach((client: any) => {
             if (client.readyState === client.OPEN) {
                 client.send(JSON.stringify({
                     type: 'editMessage',
                     message: {
                         id: message.id,
-                        content: decryptedMessageContent, // Отправляем расшифрованное сообщение
-                        isEdited: true, // Отправляем информацию о том, что сообщение отредактировано
+                        content: decryptedMessageContent, // Расшифрованное содержимое
+                        isEdited: true, // Флаг редактирования
+                        chatId: message.chatId, // ID чата
+                        updatedAt: new Date().toISOString(), // Время редактирования
                     }
                 }));
             }
         });
 
+        // Отправляем успешный ответ клиенту
         res.status(200).json({ message: 'Сообщение успешно обновлено' });
+
     } catch (error) {
-        const err = error as Error;
-        console.error('Error editing message:', err.message);
-        res.status(500).json({ message: err.message });
+        console.error('Error editing message:', error);
+        res.status(500).json({ message: 'Ошибка при редактировании сообщения.' });
     }
 };
 

@@ -26,7 +26,7 @@ const decryptPassword = (encryptedPassword: string): string => {
 export const createUser = async (
     email: string,
     password: string,
-    publicKey: string,
+    publicKey: string | null,
     username: string,
     realname: string
 ) => {
@@ -34,7 +34,7 @@ export const createUser = async (
     const user = await User.create({
         email,
         password: encryptedPassword,
-        public_key: publicKey,
+        public_key: publicKey || null,
         username,
         realname,
         lastLogin: new Date(),
@@ -61,19 +61,6 @@ export const getUserById = async (userId: number) => {
     } catch (error) {
         console.error('Error fetching user by ID:', error);
         throw new Error('Error fetching user by ID');
-    }
-};
-
-export const fetchUserById = async (userId: number) => {
-    try {
-        const user = await User.findByPk(userId);
-        if (!user) {
-            throw new Error('User not found');
-        }
-        return user;
-    } catch (error) {
-        console.error('Error fetching user by ID:', error);
-        throw error;
     }
 };
 

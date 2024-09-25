@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import {createUser, checkPassword, fetchUserById, updateUserStatus} from '../services/userService';
+import {createUser, checkPassword, updateUserStatus} from '../services/userService';
 import { UserRequest } from '../types/types';
 import User from '../models/User';
 import logger from '../utils/logger';
@@ -9,21 +9,25 @@ import fs from 'fs';
 import path from 'path';
 import {Op} from "sequelize";
 import {getDestination} from "../config/uploadConfig";
+import {getSolanaBalance, getTokenBalance} from "../services/solanaService";
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
 export const registerUser = async (req: Request, res: Response) => {
     const { email, password, username, realname, wallet: publicKey } = req.body;
 
-    if (!publicKey) {
-        return res.status(400).json({ message: 'Public key is required' });
-    }
-
     console.log('Registration Data:', { email, password, username, realname, publicKey });
 
     try {
-        const user = await createUser(email, password, publicKey, username, realname);
-        logger.info(`User registered: ${user.email}, Wallet: ${publicKey}`);
+        if (publicKey) {
+            const existingUser = await User.findOne({ where: { public_key: publicKey } });
+            if (existingUser) {
+                return res.status(400).json({ message: 'Public key is already registered' });
+            }
+        }
+
+        const user = await createUser(email, password, publicKey || null, username, realname);
+        logger.info(`User registered: ${user.email}, Wallet: ${publicKey || 'No public key provided'}`);
 
         const token = jwt.sign({ id: user.id, email: user.email, username: user.username }, secret, { expiresIn: '24h' });
         res.status(201).json({ token, user });
@@ -76,18 +80,42 @@ export const getProfile = async (req: Request, res: Response) => {
 
         const isOwner = decoded.username === user.username;
 
-        res.json({
+        const responseData: any = {
             ...user.dataValues,
             avatar: user.avatar,
             isOwner,
-            aboutMe: user.aboutMe
-        });
+            aboutMe: user.aboutMe,
+        };
+
+        if (user.shareEmail || isOwner) {
+            responseData.email = user.email;
+        }
+
+        if (user.public_key) {
+            try {
+                const solanaBalance = await getSolanaBalance(user.public_key);
+                responseData.balance = solanaBalance;
+
+                const tokenBalance = await getTokenBalance(user.public_key);
+                responseData.tokenBalance = tokenBalance;
+            } catch (balanceError) {
+                const err = balanceError as Error; // Явно приводим к Error
+                logger.error(`Error fetching balance for public_key ${user.public_key}: ${err.message}`);
+                responseData.balanceError = 'Failed to fetch balances';
+            }
+        } else {
+            responseData.balance = 0;
+            responseData.tokenBalance = 0;
+        }
+
+        res.json(responseData);
     } catch (error) {
         const err = error as Error;
         logger.error(`Profile fetch failed: ${err.message}`);
         return res.status(401).json({ message: 'Invalid token' });
     }
 };
+
 
 export const updateProfile = async (req: Request, res: Response) => {
     const { username } = req.params;
@@ -118,37 +146,6 @@ export const updateProfile = async (req: Request, res: Response) => {
         const err = error as Error;
         logger.error(`Profile update failed: ${err.message}`);
         res.status(500).json({ error: 'Error updating profile' });
-    }
-};
-
-export const phantomLogin = async (req: Request, res: Response) => {
-    const { wallet } = req.body;
-
-    if (!wallet) {
-        return res.status(400).json({ message: 'Wallet address is required' });
-    }
-
-    try {
-        const user = await User.findOne({ where: { public_key: wallet } });
-
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        user.lastLogin = new Date();
-        await user.save();
-
-        const token = jwt.sign(
-            { id: user.id, email: user.email, username: user.username },
-            secret,
-            { expiresIn: '1h' }
-        );
-
-        return res.json({ token, user });
-    } catch (error) {
-        const err = error as Error;
-        logger.error(`Phantom login failed: ${err.message}`);
-        return res.status(500).json({ message: 'Internal server error' });
     }
 };
 
@@ -249,7 +246,7 @@ export const getUserAvatars = async (req: Request, res: Response) => {
 };
 
 export const searchUser = async (req: Request, res: Response) => {
-    const { searchTerm } = req.query; // Одно поле для поиска
+    const { searchTerm } = req.query;
 
     try {
         const users = await User.findAll({
@@ -269,21 +266,6 @@ export const searchUser = async (req: Request, res: Response) => {
     }
 };
 
-
-export const getUserById = async (req: Request, res: Response) => {
-    const { userId } = req.params;
-
-    try {
-        const user = await fetchUserById(Number(userId));
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-        return res.status(200).json(user);
-    } catch (error) {
-        return res.status(500).json({ message: 'Error fetching user by ID', error });
-    }
-};
-
 export const updateUserStatusController = async (req: Request, res: Response) => {
     const { userId, isOnline } = req.body;
 
@@ -298,3 +280,38 @@ export const updateUserStatusController = async (req: Request, res: Response) =>
         return res.status(500).json({ message: 'Error updating user status', error });
     }
 };
+
+export const attachPublicKey = async (req: Request, res: Response) => {
+    const { publicKey } = req.body;
+    const userId = req.user?.id;
+
+    if (!publicKey) {
+        return res.status(400).json({ message: 'Public key is required' });
+    }
+
+    try {
+        console.log(`Received public key: ${publicKey} for user ID: ${userId}`); // Логируем полученные данные
+        const existingUser = await User.findOne({ where: { public_key: publicKey } });
+        if (existingUser) {
+            console.log(`Public key ${publicKey} already in use by another user`); // Лог для проверки наличия ключа
+            return res.status(400).json({ message: 'Public key is already in use' });
+        }
+
+        const user = await User.findByPk(userId);
+        if (!user) {
+            console.log(`User with ID ${userId} not found`); // Лог если юзер не найден
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        user.public_key = publicKey;
+        await user.save();
+
+        logger.info(`Public key ${publicKey} successfully attached to user ${user.username}`);
+        res.status(200).json({ message: 'Public key attached successfully', publicKey });
+    } catch (error) {
+        const err = error as Error;
+        logger.error(`Failed to attach public key: ${err.message}`);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+

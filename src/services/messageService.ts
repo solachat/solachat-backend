@@ -73,7 +73,7 @@ export const createMessage = async (
             chatId,
             userId,
             content: JSON.stringify(encryptedContent),
-            fileId,  // Передаем fileId, если он есть
+            fileId,
             timestamp: new Date().toISOString(),
         });
 

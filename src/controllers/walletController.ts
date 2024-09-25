@@ -16,6 +16,12 @@ export const createWallet = async (req: Request, res: Response) => {
 
 export const getBalance = async (req: Request<{ address: string }>, res: Response) => {
     const { address } = req.params;
+
+    if (!address || address.trim() === '') {
+        logger.warn('No address provided for balance fetch');
+        return res.status(400).json({ error: 'No address provided' });
+    }
+
     try {
         const balance = await getSolanaBalance(address);
         logger.info(`Fetched balance for address ${address}: ${balance} SOL`);
@@ -26,3 +32,4 @@ export const getBalance = async (req: Request<{ address: string }>, res: Respons
         res.status(500).json({ error: err.message });
     }
 };
+

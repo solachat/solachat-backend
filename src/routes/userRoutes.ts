@@ -4,9 +4,8 @@ import {
     loginUser,
     getProfile,
     updateProfile,
-    phantomLogin,
     updateUserStatusController,
-    updateAvatar, getUserAvatars, searchUser
+    updateAvatar, getUserAvatars, searchUser, attachPublicKey
 } from '../controllers/userController';
 import {authenticateToken} from "../middleware/authMiddleware";
 import {upload} from "../config/uploadConfig";
@@ -16,7 +15,6 @@ const router = Router();
 
 router.post('/register', registerUser);
 router.post('/login', loginUser);
-router.post('/phantom-login', phantomLogin);
 router.post('/update-status', updateUserStatusController);
 
 router.get('/profile', getProfile);
@@ -26,5 +24,6 @@ router.get('/search', searchUser);
 
 router.put('/profile/:username', authenticateToken, updateProfile);
 router.put('/avatar', authenticateToken, upload.single('avatar'), updateAvatar);
+router.put('/attach-public-key', authenticateToken, attachPublicKey);
 
 export default router;
