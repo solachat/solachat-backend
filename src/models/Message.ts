@@ -12,6 +12,7 @@ class Message extends Model {
     public timestamp!: string;
     public fileId?: number;
     public attachment?: File;
+    public isEdited!: boolean;
     public unread!: boolean;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
@@ -46,6 +47,10 @@ Message.init(
                 key: 'id',
             },
             allowNull: true,
+        },
+        isEdited: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: false,
         },
         timestamp: {
             type: DataTypes.STRING,

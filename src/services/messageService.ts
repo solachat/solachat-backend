@@ -105,3 +105,24 @@ export const getMessages = async (chatId: number) => {
 
     return messages;
 };
+
+export const getMessageById = async (messageId: number) => {
+    try {
+        const message = await Message.findByPk(messageId);
+        return message;
+    } catch (error) {
+        console.error('Error fetching message by ID:', error);
+        throw new Error('Failed to fetch message');
+    }
+};
+
+export const updateMessageContent = async (messageId: number, updates: { content: string; isEdited: boolean }) => {
+    try {
+        await Message.update(updates, { where: { id: messageId } });
+    } catch (error) {
+        console.error('Error updating message:', error);
+        throw new Error('Failed to update message');
+    }
+};
+
+

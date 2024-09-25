@@ -249,11 +249,16 @@ export const getUserAvatars = async (req: Request, res: Response) => {
 };
 
 export const searchUser = async (req: Request, res: Response) => {
-    const { username } = req.query;
+    const { searchTerm } = req.query; // Одно поле для поиска
 
     try {
         const users = await User.findAll({
-            where: { username: { [Op.like]: `%${username}%` } },
+            where: {
+                [Op.or]: [
+                    { username: { [Op.iLike]: `%${searchTerm}%` } },
+                    { realname: { [Op.iLike]: `%${searchTerm}%` } },
+                ],
+            },
             attributes: ['id', 'realname', 'username', 'avatar'],
         });
 
@@ -263,6 +268,7 @@ export const searchUser = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+
 
 export const getUserById = async (req: Request, res: Response) => {
     const { userId } = req.params;

@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
-import { createMessage, getMessages } from '../services/messageService';
+import {createMessage, getMessageById, getMessages, updateMessageContent} from '../services/messageService';
 import { UserRequest } from '../types/types';
 import { wss } from '../app';
-import { decryptMessage } from "../encryption/messageEncryption";
+import {decryptMessage, encryptMessage} from "../encryption/messageEncryption";
 import File from '../models/File';
 
 export const sendMessageController = async (req: UserRequest, res: Response) => {
@@ -93,3 +93,57 @@ export const getMessagesController = async (req: Request, res: Response) => {
         res.status(500).json({ message: err.message });
     }
 };
+
+export const editMessageController = async (req: UserRequest, res: Response) => {
+    const { messageId } = req.params;
+    const { content } = req.body;
+
+    if (!content) {
+        return res.status(400).json({ message: 'Необходимо предоставить содержимое сообщения.' });
+    }
+
+    try {
+        const message = await getMessageById(Number(messageId));
+
+        if (!message) {
+            return res.status(404).json({ message: 'Сообщение не найдено' });
+        }
+
+        if (message.userId !== req.user!.id) {
+            return res.status(403).json({ message: 'Вы не можете редактировать это сообщение' });
+        }
+
+        // Шифрование сообщения
+        const encryptedContent = encryptMessage(content);
+
+        // Преобразуем объект с зашифрованными данными в строку для сохранения в БД
+        await updateMessageContent(Number(messageId), {
+            content: JSON.stringify(encryptedContent), // Сохраняем объект в виде строки
+            isEdited: true, // Устанавливаем, что сообщение отредактировано
+        });
+
+        // Расшифровываем контент для WebSocket-сообщения
+        const decryptedMessageContent = decryptMessage(encryptedContent); // Передаем объект, не строку
+
+        // Отправляем обновление через WebSocket
+        wss.clients.forEach((client: any) => {
+            if (client.readyState === client.OPEN) {
+                client.send(JSON.stringify({
+                    type: 'editMessage',
+                    message: {
+                        id: message.id,
+                        content: decryptedMessageContent, // Отправляем расшифрованное сообщение
+                        isEdited: true, // Отправляем информацию о том, что сообщение отредактировано
+                    }
+                }));
+            }
+        });
+
+        res.status(200).json({ message: 'Сообщение успешно обновлено' });
+    } catch (error) {
+        const err = error as Error;
+        console.error('Error editing message:', err.message);
+        res.status(500).json({ message: err.message });
+    }
+};
+

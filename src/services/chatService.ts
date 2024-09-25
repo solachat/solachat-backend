@@ -4,6 +4,7 @@ import Message from '../models/Message';
 import { Op } from 'sequelize';
 import { decryptMessage } from '../encryption/messageEncryption';
 import file from "../models/File";
+import fs from "fs";
 
 export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     try {
@@ -212,3 +213,37 @@ export const getChatWithMessages = async (chatId: number, userId: number) => {
         throw new Error('Failed to fetch chat with messages');
     }
 };
+
+export const deleteChat = async (chatId: number) => {
+    try {
+        // Получаем все сообщения, связанные с чатом
+        const messages = await Message.findAll({ where: { chatId } });
+
+        // Удаляем все файлы, прикрепленные к сообщениям
+        for (const message of messages) {
+            if (message.fileId) {
+                const fileRecord = await file.findOne({ where: { id: message.fileId } });
+                if (fileRecord) {
+                    // Удаляем файл с диска
+                    fs.unlinkSync(fileRecord.filePath);
+                    // Удаляем запись о файле из базы данных
+                    await fileRecord.destroy();
+                }
+            }
+        }
+
+        // Удаляем все сообщения, связанные с чатом
+        await Message.destroy({ where: { chatId } });
+
+        await file.destroy({ where: { chatId } });
+
+        // Теперь можно безопасно удалить сам чат
+        await Chat.destroy({ where: { id: chatId } });
+    } catch (error) {
+        console.error('Ошибка при удалении чата:', error);
+        throw new Error('Не удалось удалить чат');
+    }
+};
+
+
+

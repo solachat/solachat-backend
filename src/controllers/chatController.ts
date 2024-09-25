@@ -4,7 +4,8 @@ import {
     createGroupChat,
     getChatById,
     getChatWithMessages,
-    getChatsForUser
+    getChatsForUser,
+    deleteChat
 } from '../services/chatService';
 import { UserRequest } from '../types/types';
 
@@ -85,5 +86,22 @@ export const getChatWithMessagesController = async (req: UserRequest, res: Respo
     } catch (error) {
         console.error('Error fetching chat with messages:', (error as Error).message);
         return res.status(500).json({ message: 'Failed to fetch chat with messages' });
+    }
+};
+
+export const deleteChatController = async (req: Request, res: Response) => {
+    const { chatId } = req.params;
+
+    try {
+        const chatIdNumber = Number(chatId);
+        if (isNaN(chatIdNumber)) {
+            return res.status(400).json({ message: 'Invalid chat ID' });
+        }
+
+        await deleteChat(chatIdNumber);
+        return res.status(200).json({ message: 'Chat deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting chat:', (error as Error).message);
+        return res.status(500).json({ message: 'Failed to delete chat' });
     }
 };

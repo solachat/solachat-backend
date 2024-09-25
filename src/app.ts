@@ -32,6 +32,7 @@ server.on('upgrade', (request, socket: Socket, head) => {
 initWebSocketServer(wss);
 
 app.use('/uploads', express.static(uploadsPath));
+app.use(express.urlencoded({ extended: true }));
 app.use('/download', downloadRoutes);
 app.use(cors());
 app.use(express.json());
