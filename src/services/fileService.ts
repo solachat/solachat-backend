@@ -2,8 +2,6 @@ import { Response as ExpressResponse } from 'express';
 import fs from 'fs';
 import crypto from 'crypto';
 import path from 'path';
-import { decryptFile } from '../encryption/fileEncryption'; // Функция расшифровки файла
-import { ensureDirectoryExists } from '../config/uploadConfig';
 
 const directories = [
     'uploads/images',
@@ -14,21 +12,18 @@ const directories = [
     'uploads/others'
 ];
 
-// Сервис для поиска зашифрованного файла
 export const findEncryptedFile = async (fileName: string): Promise<string | null> => {
-    // Перебираем все возможные директории, где может быть зашифрованный файл
     for (const directory of directories) {
-        const filePath = path.join(directory, `${fileName}.enc`); // Ищем зашифрованный файл
+        const filePath = path.join(directory, `${fileName}.enc`);
 
         if (fs.existsSync(filePath)) {
-            return filePath; // Возвращаем путь к зашифрованному файлу
+            return filePath;
         }
     }
 
-    return null; // Если файл не найден
+    return null;
 };
 
-// Функция для расшифровки файла и передачи через поток
 export const decryptFileStream = (encryptedFilePath: string, res: ExpressResponse) => {
     const encryptedMetaPath = `${encryptedFilePath}.meta`;
 
@@ -43,11 +38,10 @@ export const decryptFileStream = (encryptedFilePath: string, res: ExpressRespons
     const aesKey = crypto.privateDecrypt(fs.readFileSync('private.key', 'utf8'), encryptedAesKey);
 
     const decipher = crypto.createDecipheriv('aes-256-gcm', aesKey, iv);
-    decipher.setAuthTag(authTag);
 
-    // Чтение зашифрованного файла и расшифровка через поток
+    decipher.setAuthTag(authTag);
     const input = fs.createReadStream(encryptedFilePath);
     input.pipe(decipher).pipe(res);
 
-    return input; // Возвращаем поток для обработки ошибок
+    return input
 };

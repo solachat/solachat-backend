@@ -1,6 +1,5 @@
 import { DataTypes, Model } from 'sequelize';
 import sequelize from '../config/db';
-import Chat from './Chat'; // Включаем Chat для ассоциаций
 
 class User extends Model {
     public id!: number;

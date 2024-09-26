@@ -290,16 +290,16 @@ export const attachPublicKey = async (req: Request, res: Response) => {
     }
 
     try {
-        console.log(`Received public key: ${publicKey} for user ID: ${userId}`); // Логируем полученные данные
+        console.log(`Received public key: ${publicKey} for user ID: ${userId}`);
         const existingUser = await User.findOne({ where: { public_key: publicKey } });
         if (existingUser) {
-            console.log(`Public key ${publicKey} already in use by another user`); // Лог для проверки наличия ключа
+            console.log(`Public key ${publicKey} already in use by another user`);
             return res.status(400).json({ message: 'Public key is already in use' });
         }
 
         const user = await User.findByPk(userId);
         if (!user) {
-            console.log(`User with ID ${userId} not found`); // Лог если юзер не найден
+            console.log(`User with ID ${userId} not found`);
             return res.status(404).json({ message: 'User not found' });
         }
 

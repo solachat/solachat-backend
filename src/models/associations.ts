@@ -1,7 +1,7 @@
 import User from './User';
 import Chat from './Chat';
 import Message from './Message';
-import File from './File'; // Добавляем модель File
+import File from './File';
 import UserChats from './UserChats';
 
 export const defineAssociations = () => {

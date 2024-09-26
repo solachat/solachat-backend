@@ -1,144 +1,93 @@
-# Solacoin Backend
+# Express 2025
 
-## Description
-This is the backend for the Solacoin cryptocurrency project, built using the Solana blockchain to manage tokens and PostgreSQL for storing user and transaction data.
+## Overview
+**Express 2025** is a server-side application built with **Express.js** in **TypeScript**. This project integrates with the **Solana blockchain** and provides a fully encrypted platform for managing wallets, users, and transactions. It leverages **PostgreSQL** for persistent storage, implements robust **AES-256-GCM** and **RSA** encryption for secure file and message handling, and uses **JWT** for authentication.
 
-The project supports wallet creation, sending SPL tokens, and managing token balances.
+## Features
+- **User Authentication**: Secure login and registration using JWT tokens.
+- **Wallet Management**: Integration with Solana for wallet creation and token transfers.
+- **Message Encryption**: AES-256 encryption for messages with HMAC-SHA256 for integrity.
+- **File Encryption**: AES-256 encryption for files with RSA for key encryption.
+- **WebRTC Call Encryption**: Secure real-time communication using DTLS in WebRTC.
 
-## Tech Stack
-- **Node.js**: Backend language.
-- **Express**: Web framework for building the API.
-- **Solana Web3.js**: Interacts with the Solana blockchain.
-- **PostgreSQL**: Database for storing users and transactions.
-- **Sequelize**: ORM for working with PostgreSQL.
-- **Docker**: For containerizing the application and the database.
-- **JWT**: For user authentication.
+## Requirements
+- **Node.js** >= 14.x
+- **Docker** (for containerization)
+- **Solana CLI** (for blockchain interactions)
+- **PostgreSQL** (for persistent data storage)
 
-## Installation and Setup
+## Installation
 
-### Step 1: Clone the repository
+1. Clone the repository:
 
-```
-git clone https://github.com/solacoin/express-2025.git
-cd solacoin-backend
-```
+    ```bash
+    git clone https://github.com/solacoin/express-2025.git
+    cd express-2025
+    ```
 
-### Step 2: Configure environment variables
+2. Install the dependencies:
 
-Create a `.env` file in the root directory and add the following variables:
+    ```bash
+    npm install
+    ```
 
-```
-SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
-TOKEN_MINT_ADDRESS=CiNMmohyVzNq43GtVubLpCMAzGwgJUe4MFxVGNfEiUYG
-JWT_SECRET=my_super_secret_key
-PORT=4000
+3. Configure the environment variables in the `.env` file based on `.env.example`:
+    ```bash
+    DATABASE_URL=your_database_url
+    SOLANA_URL=your_solana_rpc_url
+    JWT_SECRET=your_jwt_secret
+    AES_SECRET_KEY=your_aes_secret_key (32 characters)
+    HMAC_SECRET_KEY=your_hmac_secret_key (32 characters)
+    ```
 
-# PostgreSQL
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=postgres
-DB_USER=postgres
-DB_PASSWORD=your_password
-DB_LOGGING=true
-```
+4. Set up Docker containers:
 
-### Step 4: Docker setup
+    ```bash
+    docker-compose up
+    ```
 
-To run the backend with Docker, make sure Docker is installed on your machine.
+## Running the Project
 
-1. Create a `Dockerfile` for the Node.js Backend:
-```
-# Dockerfile
-FROM node:16
+### Development Mode
 
-# Set the working directory
-WORKDIR /app
+To run the project in development mode with hot-reloading:
 
-# Copy package files and install dependencies
-COPY package*.json ./
-RUN npm install
-
-# Copy the rest of the application code
-COPY . .
-
-# Expose the port the app runs on
-EXPOSE 4000
-
-# Start the application
-CMD ["npm", "run", "start"]
+```bash
+npm run dev
 ```
 
-2. Create a `docker-compose.yml` file to configure Docker services:
-```
-version: '3.8'
+### Production Mode
+For running the application in a production environment:
 
-services:
-  app:
-    build: .
-    ports:
-      - "4000:4000"
-    env_file:
-      - .env
-    depends_on:
-      - db
-    networks:
-      - solacoin-network
-
-  db:
-    image: postgres:13
-    environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "5432:5432"
-    volumes:
-      - db-data:/var/lib/postgresql/data
-    networks:
-      - solacoin-network
-
-networks:
-  solacoin-network:
-
-volumes:
-  db-data:
+```bash
+npm start
 ```
 
-### Step 5: Run the application with Docker
-To start both the Node.js backend and the PostgreSQL database, run:
-```
-docker-compose up
-```
+## Project Structure
 
-### Step 6: Database migration
+- **src/** — Main application code:
+    - **controllers/** — Logic that handles incoming HTTP requests.
+    - **services/** — Business logic interacting with external systems (e.g., Solana blockchain).
+    - **models/** — Database models for PostgreSQL.
+    - **routes/** — API routing definitions.
+    - **middleware/** — JWT authentication and user verification.
+    - **config/** — Configuration files for database and Solana RPC.
+    - **encryption/** — AES and RSA encryption methods for secure file and message handling.
+    - **utils/** — Utility functions (logging, database synchronization).
 
-To ensure that all tables are created in the database, run the following command:
-```
-npm run sync-db
-```
+## API Documentation
+Detailed API documentation is available in the [API Documentation](./docs/api_endpoints.md).
 
-## API Endpoints
+## Security and Encryption
+The project uses industry-standard encryption algorithms:
 
-### Authentication
+- **AES-256-GCM** for symmetric encryption (messages, files).
+- **RSA** for asymmetric encryption (file encryption keys).
+- **HMAC-SHA256** for integrity verification of encrypted messages.
+- **DTLS** for secure WebRTC communication.
 
-- **POST /register** - Regiater a new user.
-- **POST /login** - Log in an existing user and get a JWT token.
+More details are provided in the [Encryption Documentation](./docs/encryption.md).
 
-### Wallet
+## Contact
+For any inquiries or contributions, please reach out via contact@solacoin.org.
 
-- **POST /wallet/create** - Create a new Solana wallet.
-- **GET /wallet/balance** - Get the balance of a Solana wallet.
-
-### Token
-
-- **POST /token/create** - Create a new SPL token.
-- **GET /token/publickey/balance** - Get the balance of a specific SPL token.
-- **POST /token/send** - Send SPL tokens from one wallet to another.
-
-## Contributing
-
-If you'd like to contribute to the project, please create a pull request or open an issue.
-
-## License
-
-This project is licensed under the MIT License.

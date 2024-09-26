@@ -9,7 +9,7 @@ import chatRoutes from './routes/chatRoutes';
 import messageRoutes from './routes/messageRoutes';
 import { initWebSocketServer } from './websocket';
 import WebSocket from 'ws';
-import { Socket } from 'net';  // Импортируем Socket
+import { Socket } from 'net';
 import './models/associations';
 import downloadRoutes from "./routes/fileRoutes";
 
@@ -20,7 +20,6 @@ console.log(`Serving static files from: ${uploadsPath}`);
 
 const server = http.createServer(app);
 
-// WebSocket сервер инициализируется один раз
 export const wss = new WebSocket.Server({ noServer: true });
 
 server.on('upgrade', (request, socket: Socket, head) => {

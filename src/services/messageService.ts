@@ -3,8 +3,6 @@ import Chat from '../models/Chat';
 import User from '../models/User';
 import File from '../models/File';
 import { encryptMessage } from "../encryption/messageEncryption";
-import path from "path";
-import fs from "fs";
 
 export const createMessage = async (
     userId: number,
@@ -39,17 +37,14 @@ export const createMessage = async (
     if (filePath) {
         console.log('File path provided:', filePath);
 
-        // Удаляем протокол и хост для поиска в базе данных
         let relativeFilePath = filePath.replace(`${protocol}://${host}`, '');
 
-        // Убираем ведущий слэш, если он есть
         if (relativeFilePath.startsWith('/')) {
             relativeFilePath = relativeFilePath.slice(1);
         }
 
         console.log('Relative file path for DB lookup:', relativeFilePath);
 
-        // Поиск файла в базе данных
         const file = await File.findOne({ where: { filePath: relativeFilePath } });
 
         if (file) {

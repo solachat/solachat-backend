@@ -21,16 +21,6 @@ const MAX_RETRIES = 10;
 const RETRY_DELAY_MS = 1000;
 const TIMEOUT_MS = 5000;
 
-export const createNewWallet = (): { publicKey: string; secretKey: string } => {
-    const keypair = Keypair.generate();
-    const wallet = {
-        publicKey: keypair.publicKey.toBase58(),
-        secretKey: Buffer.from(keypair.secretKey).toString('hex'),
-    };
-    logger.info(`Wallet generated: ${wallet.publicKey}`);
-    return wallet;
-};
-
 export const getSolanaBalance = async (address: string): Promise<number> => {
     const connection = new Connection(config.solana.rpcUrl, {
         commitment: 'confirmed',

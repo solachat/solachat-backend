@@ -10,10 +10,9 @@ export const setupEncryptedCall = (localStream: MediaStream, remoteStreamCallbac
         remoteStreamCallback(remoteStream);
     };
 
-    // DTLS обеспечивает шифрование для звонков
     peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
-            // Отправляем ICE-кандидаты на сервер
+        //     in process...
         }
     };
 

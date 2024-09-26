@@ -37,7 +37,6 @@ export const initWebSocketServer = (server: any) => {
                 return;
             }
 
-            // Вызываем функцию для обновления статуса пользователя на "online"
             await updateUserStatus(userId, true);
             console.log(`User ${user.username} is now online`);
 
@@ -48,7 +47,7 @@ export const initWebSocketServer = (server: any) => {
 
                 if (parsedMessage.type === 'heartbeat') {
                     console.log(`Received heartbeat from user ${user.username}`);
-                    await updateUserStatus(userId, true); // Обновляем статус на "online"
+                    await updateUserStatus(userId, true);
                 } else {
                     handleMessage(userId, parsedMessage);
                 }
@@ -96,10 +95,8 @@ const handleMessage = async (userId: number, rawMessage: string) => {
             return;
         }
 
-        // Шифруем сообщение перед сохранением
-        const message = await createMessage(userId, chatId, content, 'ws', 'localhost'); // или другие значения для protocol и host
+        const message = await createMessage(userId, chatId, content, 'ws', 'localhost');
 
-        // Вещаем зашифрованное сообщение
         broadcastMessage(chatId, message);
     } catch (error) {
         console.error(`Error handling message from user ${userId}:`, error);
@@ -108,7 +105,6 @@ const handleMessage = async (userId: number, rawMessage: string) => {
 
 const broadcastMessage = async (chatId: number, message: Message) => {
     try {
-        // Загружаем данные об отправителе
         const sender = await User.findByPk(message.userId, {
             attributes: ['id', 'username', 'realname', 'avatar', 'online'],
         });
@@ -118,7 +114,6 @@ const broadcastMessage = async (chatId: number, message: Message) => {
             return;
         }
 
-        // Получаем участников чата
         const chat = await Chat.findByPk(chatId, {
             include: [
                 {
@@ -133,10 +128,8 @@ const broadcastMessage = async (chatId: number, message: Message) => {
             return;
         }
 
-        // Получаем IDs участников чата
         const participantIds = chat.users.map(user => user.id);
 
-        // Отправляем сообщение с полной информацией о пользователе всем участникам чата
         connectedUsers.forEach(({ ws, userId }) => {
             if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
                 ws.send(JSON.stringify({

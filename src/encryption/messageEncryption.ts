@@ -38,7 +38,7 @@ export const decryptMessage = (hash: { iv: string, content: string, authTag: str
     const authTag = Buffer.from(hash.authTag, 'hex');
 
     const hmac = crypto.createHmac('sha256', hmacKey);
-    hmac.update(iv); // Проверяем сначала IV
+    hmac.update(iv);
     hmac.update(encryptedContent);
     const hmacDigest = hmac.digest('hex');
 
@@ -46,9 +46,8 @@ export const decryptMessage = (hash: { iv: string, content: string, authTag: str
         throw new Error('Data integrity check failed: HMAC mismatch.');
     }
 
-    // Расшифровка
     const decipher = crypto.createDecipheriv(encryptionAlgorithm, secretKey, iv);
-    decipher.setAuthTag(authTag); // Устанавливаем тэг аутентификации
+    decipher.setAuthTag(authTag);
 
     const decrypted = Buffer.concat([decipher.update(encryptedContent), decipher.final()]);
 

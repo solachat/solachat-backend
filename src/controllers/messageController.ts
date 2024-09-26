@@ -103,47 +103,40 @@ export const editMessageController = async (req: UserRequest, res: Response) => 
     }
 
     try {
-        // Получаем сообщение из базы данных
         const message = await getMessageById(Number(messageId));
 
         if (!message) {
             return res.status(404).json({ message: 'Сообщение не найдено.' });
         }
 
-        // Проверка, что пользователь является автором сообщения
         if (message.userId !== req.user!.id) {
             return res.status(403).json({ message: 'Вы не можете редактировать это сообщение.' });
         }
 
-        // Шифруем новое содержимое сообщения
         const encryptedContent = encryptMessage(content);
 
-        // Обновляем содержимое сообщения в базе данных
         await updateMessageContent(Number(messageId), {
-            content: JSON.stringify(encryptedContent), // Сохраняем зашифрованное сообщение
-            isEdited: true, // Помечаем сообщение как отредактированное
+            content: JSON.stringify(encryptedContent),
+            isEdited: true,
         });
 
-        // Расшифровываем содержимое для отправки через WebSocket
         const decryptedMessageContent = decryptMessage(encryptedContent);
 
-        // Отправляем обновленное сообщение через WebSocket всем участникам чата
         wss.clients.forEach((client: any) => {
             if (client.readyState === client.OPEN) {
                 client.send(JSON.stringify({
                     type: 'editMessage',
                     message: {
                         id: message.id,
-                        content: decryptedMessageContent, // Расшифрованное содержимое
-                        isEdited: true, // Флаг редактирования
-                        chatId: message.chatId, // ID чата
-                        updatedAt: new Date().toISOString(), // Время редактирования
+                        content: decryptedMessageContent,
+                        isEdited: true,
+                        chatId: message.chatId,
+                        updatedAt: new Date().toISOString(),
                     }
                 }));
             }
         });
 
-        // Отправляем успешный ответ клиенту
         res.status(200).json({ message: 'Сообщение успешно обновлено' });
 
     } catch (error) {

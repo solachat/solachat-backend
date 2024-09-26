@@ -6,7 +6,6 @@ export const generateKeys = () => {
         modulusLength: 2048,
     });
 
-    // Сохраняем ключи в файлы
     fs.writeFileSync('private.key', privateKey.export({ type: 'pkcs1', format: 'pem' }));
     fs.writeFileSync('public.key', publicKey.export({ type: 'pkcs1', format: 'pem' }));
 

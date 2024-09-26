@@ -41,7 +41,6 @@ const storage = multer.diskStorage({
     destination: (req: UserRequest, file, cb) => {
         const fileExtension = path.extname(file.originalname).toLowerCase().slice(1)
 
-        // Определяем папку назначения
         const destinationPath = getDestination(fileExtension);
         ensureDirectoryExists(destinationPath);
 

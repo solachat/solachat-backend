@@ -1,7 +1,7 @@
 import { DataTypes, Model, Optional } from 'sequelize';
 import sequelize from '../config/db';
 import User from './User';
-import Message from './Message'; // Добавляем для связи с сообщениями
+import Message from './Message';
 
 interface ChatAttributes {
     id: number;
