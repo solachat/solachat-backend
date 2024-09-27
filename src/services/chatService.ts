@@ -143,7 +143,9 @@ export const getChatsForUser = async (userId: number) => {
                     model: User,
                     as: 'users',
                     attributes: ['id', 'username', 'realname', 'avatar', 'online'],
-                    through: { attributes: [] },
+                    through: {
+                        attributes: ['role'],
+                    },
                 },
                 {
                     model: Message,
@@ -151,9 +153,9 @@ export const getChatsForUser = async (userId: number) => {
                     attributes: ['id', 'content', 'fileId', 'createdAt', 'userId', 'isEdited'],
                     include: [
                         { model: User, as: 'user', attributes: ['username'] },
-                        { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] }
+                        { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] },
                     ],
-                }
+                },
             ],
             order: [['updatedAt', 'DESC']],
         });
@@ -167,28 +169,39 @@ export const getChatsForUser = async (userId: number) => {
             chatName: chat.isGroup
                 ? chat.name
                 : (chat.users && chat.users.length > 0 ? chat.users.find(u => u.id !== userId)?.realname : 'Unknown'),
+            users: (chat.users || []).map(user => ({
+                id: user.id,
+                username: user.username,
+                realname: user.realname,
+                avatar: user.avatar,
+                online: user.online,
+                role: (user as any).UserChats?.role || 'member',
+            })),
             messages: chat.messages
                 ? chat.messages
                     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
                     .map((message: Message) => {
                         const decryptedContent = decryptMessage(JSON.parse(message.content));
-                        const attachment = message.attachment ? {
-                            fileName: message.attachment.fileName,
-                            filePath: message.attachment.filePath
-                        } : null;
+                        const attachment = message.attachment
+                            ? {
+                                fileName: message.attachment.fileName,
+                                filePath: message.attachment.filePath,
+                            }
+                            : null;
 
                         return {
                             ...message.toJSON(),
                             content: decryptedContent,
-                            attachment
+                            attachment,
                         };
                     })
-                : []
+                : [],
         }));
     } catch (error) {
         throw new Error('Не удалось получить чаты для пользователя');
     }
 };
+
 
 export const getChatWithMessages = async (chatId: number, userId: number) => {
     try {
