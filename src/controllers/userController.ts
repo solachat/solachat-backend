@@ -55,7 +55,7 @@ export const loginUser = async (req: Request, res: Response) => {
         user.lastLogin = new Date();
         await user.save();
 
-        const token = jwt.sign({ id: user.id, email: user.email, username: user.username }, secret, { expiresIn: '24h' });
+        const token = jwt.sign({ id: user.id, email: user.email, username: user.username, avatar: user.avatar }, secret, { expiresIn: '24h' });
         return res.json({ token, user: { username: user.username, email: user.email, lastLogin: user.lastLogin } });
     } catch (error) {
         const err = error as Error;
