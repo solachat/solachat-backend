@@ -170,9 +170,94 @@ const updateUserStatus = async (userId: number, isOnline: boolean) => {
         }
 
         user.online = isOnline;
-        await user.save();  // Сохраняем обновленный статус
+        await user.save();
         console.log(`User ${user.username} status updated to ${isOnline ? 'online' : 'offline'}`);
     } catch (error) {
         console.error('Error updating user status:', error);
     }
+};
+
+const notifyRoleChange = async (chatId: number, userId: number, newRole: string) => {
+    const chat = await Chat.findByPk(chatId, {
+        include: [
+            {
+                model: User,
+                attributes: ['id']
+            }
+        ]
+    });
+
+    if (!chat || !chat.users || !Array.isArray(chat.users)) {
+        console.error(`Chat with ID ${chatId} not found or has no participants`);
+        return;
+    }
+
+    const participantIds = chat.users.map(user => user.id);
+
+    connectedUsers.forEach(({ ws, userId }) => {
+        if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
+            ws.send(JSON.stringify({
+                type: 'roleChange',
+                userId: userId,
+                newRole: newRole,
+                chatId: chatId,
+            }));
+        }
+    });
+};
+
+const notifyUserAdded = async (chatId: number, newUserId: number) => {
+    const chat = await Chat.findByPk(chatId, {
+        include: [
+            {
+                model: User,
+                attributes: ['id']
+            }
+        ]
+    });
+
+    if (!chat || !chat.users || !Array.isArray(chat.users)) {
+        console.error(`Chat with ID ${chatId} not found or has no participants`);
+        return;
+    }
+
+    const participantIds = chat.users.map(user => user.id);
+
+    connectedUsers.forEach(({ ws, userId }) => {
+        if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
+            ws.send(JSON.stringify({
+                type: 'userAdded',
+                userId: newUserId,
+                chatId: chatId,
+            }));
+        }
+    });
+};
+
+const notifyUserRemoved = async (chatId: number, removedUserId: number) => {
+    const chat = await Chat.findByPk(chatId, {
+        include: [
+            {
+                model: User,
+                attributes: ['id']
+            }
+        ]
+    });
+
+    if (!chat || !chat.users || !Array.isArray(chat.users)) {
+        console.error(`Chat with ID ${chatId} not found or has no participants`);
+        return;
+    }
+
+    const participantIds = chat.users.map(user => user.id);
+
+    connectedUsers.forEach(({ ws, userId }) => {
+        if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
+            ws.send(JSON.stringify({
+                type: 'userRemoved',
+                userId: removedUserId,
+                chatId: chatId,
+            }));
+        }
+    });
 };

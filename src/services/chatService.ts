@@ -5,6 +5,7 @@ import { Op } from 'sequelize';
 import { decryptMessage } from '../encryption/messageEncryption';
 import file from "../models/File";
 import fs from "fs";
+import UserChats from "../models/UserChats";
 
 export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     try {
@@ -45,18 +46,47 @@ export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     }
 };
 
-export const createGroupChat = async (userIds: number[], chatName: string) => {
+export const createGroupChat = async (userIds: number[], chatName: string, creatorId: number) => {
     try {
+        console.log('Creating group chat with users:', userIds, 'and name:', chatName);
+
         const chat = await Chat.create({ name: chatName, isGroup: true });
+
         const users = await User.findAll({ where: { id: userIds } });
 
         if (users.length !== userIds.length) {
-            throw new Error('Some users were not found');
+            console.error('Некоторые пользователи не найдены:', userIds);
+            throw new Error('Некоторые пользователи не найдены');
         }
 
         await chat.addUsers(users);
+
+        for (const user of users) {
+            const role = user.id === creatorId ? 'owner' : 'member';
+
+            const existingUserChat = await UserChats.findOne({
+                where: {
+                    chatId: chat.id,
+                    userId: user.id,
+                },
+            });
+
+            if (!existingUserChat) {
+                await UserChats.create({
+                    chatId: chat.id,
+                    userId: user.id,
+                    role: role,
+                });
+            } else if (user.id === creatorId && existingUserChat.role !== 'owner') {
+                existingUserChat.role = 'owner';
+                await existingUserChat.save();
+            }
+        }
+
+        console.log('Group chat created successfully with owner:', creatorId);
         return chat;
     } catch (error) {
+        console.error('Error during group chat creation:', error);
         throw new Error('Failed to create group chat');
     }
 };
@@ -227,3 +257,76 @@ export const deleteChat = async (chatId: number) => {
         throw new Error('Не удалось удалить чат');
     }
 };
+
+
+export const assignRole = async (chatId: number, userId: number, role: 'admin' | 'member'): Promise<void> => {
+    const userChat = await UserChats.findOne({ where: { chatId, userId } });
+
+    if (!userChat) {
+        throw new Error('Пользователь не найден в чате');
+    }
+
+    userChat.role = role;
+    await userChat.save();
+};
+
+export const kickUserFromChat = async (chatId: number, userIdToKick: number, userId: number): Promise<void> => {
+    const chat = await Chat.findByPk(chatId);
+
+    if (!chat) {
+        throw new Error('Чат не найден');
+    }
+
+    const userRole = await getUserRoleInChat(userId, chatId);
+    if (userRole !== 'owner' && userRole !== 'admin') {
+        throw new Error('У вас нет прав для удаления участников из этого чата');
+    }
+
+    const userToKick = await User.findByPk(userIdToKick);
+    if (!userToKick) {
+        throw new Error('Пользователь не найден');
+    }
+
+    await UserChats.destroy({
+        where: { userId: userIdToKick, chatId }
+    });
+};
+
+
+export const getUserRoleInChat = async (userId: number, chatId: number): Promise<'owner' | 'admin' | 'member' | null> => {
+    const userChat = await UserChats.findOne({
+        where: { userId, chatId },
+    });
+
+    return userChat ? userChat.role : null;
+};
+
+export const addUsersToGroupChat = async (chatId: number, newUserIds: number[], userId: number): Promise<void> => {
+    const chat = await Chat.findByPk(chatId);
+
+    if (!chat) {
+        throw new Error('Чат не найден');
+    }
+
+    const userRole = await getUserRoleInChat(userId, chatId);
+    if (userRole !== 'owner' && userRole !== 'admin') {
+        throw new Error('У вас нет прав для добавления участников в этот чат');
+    }
+
+    const users = await User.findAll({ where: { id: newUserIds } });
+
+    if (users.length !== newUserIds.length) {
+        throw new Error('Некоторые пользователи не найдены');
+    }
+
+    await chat.addUsers(users);
+
+    for (const newUserId of newUserIds) {
+        const userChat = await UserChats.findOne({ where: { chatId, userId: newUserId } });
+        if (userChat) {
+            userChat.role = 'member';
+            await userChat.save();
+        }
+    }
+};
+
