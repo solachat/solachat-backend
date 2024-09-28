@@ -6,6 +6,7 @@ import { decryptMessage } from '../encryption/messageEncryption';
 import file from "../models/File";
 import fs from "fs";
 import UserChats from "../models/UserChats";
+import path from "path";
 
 export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     try {
@@ -46,11 +47,11 @@ export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     }
 };
 
-export const createGroupChat = async (userIds: number[], chatName: string, creatorId: number) => {
+export const createGroupChat = async (userIds: number[], chatName: string, creatorId: number, avatar?: string) => {
     try {
         console.log('Creating group chat with users:', userIds, 'and name:', chatName);
 
-        const chat = await Chat.create({ name: chatName, isGroup: true });
+        const chat = await Chat.create({ name: chatName, isGroup: true, avatar }); // Сохраняем аватар
 
         const users = await User.findAll({ where: { id: userIds } });
 
@@ -271,7 +272,6 @@ export const deleteChat = async (chatId: number) => {
     }
 };
 
-
 export const assignRole = async (chatId: number, userId: number, role: 'admin' | 'member'): Promise<void> => {
     const userChat = await UserChats.findOne({ where: { chatId, userId } });
 
@@ -304,7 +304,6 @@ export const kickUserFromChat = async (chatId: number, userIdToKick: number, use
         where: { userId: userIdToKick, chatId }
     });
 };
-
 
 export const getUserRoleInChat = async (userId: number, chatId: number): Promise<'owner' | 'admin' | 'member' | null> => {
     const userChat = await UserChats.findOne({

@@ -5,11 +5,13 @@ import {
     getChatById,
     getChatWithMessages,
     getChatsForUser,
-    deleteChat, addUsersToGroupChat, kickUserFromChat, assignRole
+    deleteChat, addUsersToGroupChat, kickUserFromChat, assignRole, getUserRoleInChat
 } from '../services/chatService';
 import { UserRequest } from '../types/types';
 import multer from 'multer';
 import jwt from "jsonwebtoken";
+import User from "../models/User";
+import {uploadFileController} from "./fileController";
 
 const upload = multer();
 
@@ -28,44 +30,46 @@ export const createPrivateChatController = async (req: Request, res: Response) =
     }
 };
 
-export const createGroupChatController = [
-    upload.none(),
-    async (req: Request, res: Response) => {
-        const { groupName, selectedUsers } = req.body;
+export const createGroupChatController = async (req: Request, res: Response) => {
+    const { groupName, selectedUsers } = req.body;
 
-        console.log("Полученные данные: ", req.body);
-
-        if (!groupName || !Array.isArray(selectedUsers) || selectedUsers.length === 0) {
-            return res.status(400).json({ message: 'Не все обязательные поля заполнены' });
-        }
-
-        const userIds = selectedUsers.map((userId: string) => parseInt(userId, 10));
-        const token = req.headers.authorization?.split(' ')[1];
-        if (!token) {
-            return res.status(401).json({ message: 'Токен отсутствует' });
-        }
-
-        let creatorId: number;
-        try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { id: number };
-            creatorId = decoded.id; // ID создателя
-        } catch (error) {
-            return res.status(403).json({ message: 'Неверный токен' });
-        }
-
-        if (!userIds.includes(creatorId)) {
-            userIds.push(creatorId);
-        }
-
-        try {
-            const chat = await createGroupChat(userIds, groupName, creatorId);
-            return res.status(201).json(chat);
-        } catch (error) {
-            console.error('Error creating group chat:', (error as Error).message);
-            return res.status(500).json({ message: 'Failed to create group chat' });
-        }
+    if (!groupName || !Array.isArray(selectedUsers) || selectedUsers.length === 0) {
+        return res.status(400).json({ message: 'Не все обязательные поля заполнены' });
     }
-];
+
+    const userIds = selectedUsers.map((userId: string) => parseInt(userId, 10));
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+        return res.status(401).json({ message: 'Токен отсутствует' });
+    }
+
+    let creatorId: number;
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { id: number };
+        creatorId = decoded.id;
+    } catch (error) {
+        return res.status(403).json({ message: 'Неверный токен' });
+    }
+
+    if (!userIds.includes(creatorId)) {
+        userIds.push(creatorId);
+    }
+
+    let avatarUrl: string | undefined;
+    if (req.file) {
+        avatarUrl = `${req.protocol}://${req.get('host')}/uploads/images/${req.file.filename}`; // Генерация URL аватара
+    }
+
+    try {
+        // Создаем групповую беседу с сохраненной аватаркой
+        const chat = await createGroupChat(userIds, groupName, creatorId, avatarUrl);
+        return res.status(201).json(chat);
+    } catch (error) {
+        console.error('Ошибка при создании группы:', (error as Error).message);
+        return res.status(500).json({ message: 'Не удалось создать группу.' });
+    }
+};
+
 
 
 
@@ -158,15 +162,29 @@ export const addUsersToChatController = async (req: Request, res: Response) => {
 };
 
 export const kickUserController = async (req: Request, res: Response) => {
-    const { chatId, userIdToKick } = req.body;
+    const { chatId } = req.params;
+    const { userIdToKick } = req.body;
     const userId = req.user?.id;
+
+    console.log("Получен запрос на удаление:", chatId, userIdToKick, userId);
 
     if (!chatId || !userIdToKick) {
         return res.status(400).json({ message: 'Неверные данные' });
     }
 
     try {
-        await kickUserFromChat(chatId, userIdToKick, userId!);
+        const userRole = await getUserRoleInChat(userId!, Number(chatId));
+
+        if (userRole !== 'owner' && userRole !== 'admin') {
+            return res.status(403).json({ message: 'У вас нет прав для удаления участников из этого чата' });
+        }
+
+        const userToKick = await User.findByPk(userIdToKick);
+        if (!userToKick) {
+            return res.status(404).json({ message: 'Пользователь не найден' });
+        }
+
+        await kickUserFromChat(Number(chatId), userIdToKick, userId!);
         res.status(200).json({ message: 'Участник успешно удален из чата' });
     } catch (error) {
         console.error('Ошибка при удалении участника:', error);
@@ -174,8 +192,10 @@ export const kickUserController = async (req: Request, res: Response) => {
     }
 };
 
+
 export const assignRoleController = async (req: Request, res: Response) => {
-    const { chatId, userIdToAssign, role } = req.body;
+    const { userIdToAssign, role } = req.body;
+    const { chatId } = req.params;
     const userId = req.user?.id;
 
     if (!chatId || !userIdToAssign || !role) {
@@ -183,7 +203,7 @@ export const assignRoleController = async (req: Request, res: Response) => {
     }
 
     try {
-        await assignRole(chatId, userIdToAssign, role);
+        await assignRole(Number(chatId), userIdToAssign, role);
         res.status(200).json({ message: 'Роль успешно назначена' });
     } catch (error) {
         console.error('Ошибка при назначении роли:', error);

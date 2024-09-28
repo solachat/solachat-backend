@@ -11,11 +11,12 @@ import {
     assignRoleController
 } from '../controllers/chatController';
 import { authenticateToken } from '../middleware/authMiddleware';
+import {upload} from "../config/uploadConfig";
 
 const router = Router();
 
 router.post('/private', authenticateToken, createPrivateChatController);
-router.post('/group', authenticateToken, createGroupChatController);
+router.post('/group', authenticateToken, upload.single('avatar'), createGroupChatController);
 
 router.get('/:chatId', authenticateToken, getChatController);
 router.post('/chats', authenticateToken, getChatsController);

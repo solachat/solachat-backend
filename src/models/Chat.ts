@@ -7,6 +7,7 @@ interface ChatAttributes {
     id: number;
     name?: string;
     isGroup: boolean;
+    avatar?: string; // Добавляем поле для аватара
     createdAt?: Date;
     updatedAt?: Date;
 }
@@ -17,6 +18,7 @@ class Chat extends Model<ChatAttributes, ChatCreationAttributes> implements Chat
     public id!: number;
     public name?: string;
     public isGroup!: boolean;
+    public avatar?: string;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
 
@@ -42,6 +44,10 @@ Chat.init(
             type: DataTypes.BOOLEAN,
             allowNull: false,
             defaultValue: false,
+        },
+        avatar: {
+            type: DataTypes.STRING,
+            allowNull: true,
         },
     },
     {
