@@ -235,15 +235,13 @@ export const assignRoleController = async (req: Request, res: Response) => {
 
 export const updateChatSettingsController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
-    const { groupName } = req.body; // Получаем groupName
-    const avatar = req.file; // Получаем файл
+    const { groupName } = req.body;
+    const avatar = req.file;
 
-    // Проверка на наличие chatId
     if (!chatId) {
         return res.status(400).json({ message: 'Chat ID is required' });
     }
 
-    // Получение userId из токена
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) {
         return res.status(401).json({ message: 'Token is missing' });
@@ -260,7 +258,6 @@ export const updateChatSettingsController = async (req: Request, res: Response) 
     console.log('Extracted userId:', userId);
     console.log('Updating chat:', { chatId, groupName, avatar });
 
-    // Генерация URL для аватара, если файл существует
     const avatarUrl = avatar ? `${req.protocol}://${req.get('host')}/uploads/images/${avatar.filename}` : undefined;
 
     try {

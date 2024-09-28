@@ -10,74 +10,32 @@ export const createMessage = async (
     content: string,
     protocol: string,
     host: string,
-    filePath?: string
+    fileId?: number | null
 ) => {
-    console.log('Starting message creation process...');
-    console.log('Received parameters:', { userId, chatId, content, filePath });
-
     const chat = await Chat.findByPk(chatId);
     const user = await User.findByPk(userId);
 
     if (!chat) {
-        console.error(`Chat with ID ${chatId} not found`);
         throw new Error('Chat not found');
-    } else {
-        console.log(`Chat found: ${chatId}`);
     }
 
     if (!user) {
-        console.error(`User with ID ${userId} not found`);
         throw new Error('User not found');
-    } else {
-        console.log(`User found: ${userId}`);
     }
 
-    let fileId = null;
-
-    if (filePath) {
-        console.log('File path provided:', filePath);
-
-        let relativeFilePath = filePath.replace(`${protocol}://${host}`, '');
-
-        if (relativeFilePath.startsWith('/')) {
-            relativeFilePath = relativeFilePath.slice(1);
-        }
-
-        console.log('Relative file path for DB lookup:', relativeFilePath);
-
-        const file = await File.findOne({ where: { filePath: relativeFilePath } });
-
-        if (file) {
-            fileId = file.id;
-            console.log('File found in DB:', file);
-            console.log('File ID:', fileId);
-        } else {
-            console.error('File not found in DB for path:', relativeFilePath);
-            throw new Error('File not found in database');
-        }
-    } else {
-        console.log('No file path provided, creating message without file attachment');
-    }
-
-    console.log('Encrypting message content...');
+    // Шифруем сообщение
     const encryptedContent = encryptMessage(content);
 
-    try {
-        console.log('Saving message to database...');
-        const message = await Message.create({
-            chatId,
-            userId,
-            content: JSON.stringify(encryptedContent),
-            fileId,
-            timestamp: new Date().toISOString(),
-        });
+    // Сохраняем сообщение
+    const message = await Message.create({
+        chatId,
+        userId,
+        content: JSON.stringify(encryptedContent),
+        fileId: fileId || undefined,
+        timestamp: new Date().toISOString(),
+    });
 
-        console.log('Message saved successfully:', message);
-        return message;
-    } catch (error) {
-        console.error('Error creating message in DB:', error);
-        throw new Error('Failed to create message');
-    }
+    return message;
 };
 
 

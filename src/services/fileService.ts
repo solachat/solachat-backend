@@ -28,6 +28,7 @@ export const decryptFileStream = (encryptedFilePath: string, res: ExpressRespons
     const encryptedMetaPath = `${encryptedFilePath}.meta`;
 
     if (!fs.existsSync(encryptedMetaPath)) {
+        console.error('Метаданные для файла не найдены:', encryptedMetaPath);
         throw new Error('Метаданные для файла не найдены.');
     }
 
@@ -43,5 +44,6 @@ export const decryptFileStream = (encryptedFilePath: string, res: ExpressRespons
     const input = fs.createReadStream(encryptedFilePath);
     input.pipe(decipher).pipe(res);
 
-    return input
+    return input;
 };
+

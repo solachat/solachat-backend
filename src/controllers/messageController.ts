@@ -5,30 +5,32 @@ import { wss } from '../app';
 import {decryptMessage, encryptMessage} from "../encryption/messageEncryption";
 import File from '../models/File';
 import User from "../models/User";
+import {uploadFileController} from "./fileController";
 
 export const sendMessageController = async (req: UserRequest, res: Response) => {
     const { chatId } = req.params;
-    const { content, filePath } = req.body;
-
-    if (!content && !filePath) {
-        return res.status(400).json({ message: 'Необходимо предоставить содержимое сообщения или путь к файлу.' });
-    }
+    const { content } = req.body;
+    let filePath: string | undefined;
 
     try {
-        let file = null;
+        const files = req.files as { [fieldname: string]: Express.Multer.File[] };
 
-        if (filePath) {
-            const relativeFilePath = filePath.replace(`${req.protocol}://${req.get('host')}/`, '');
+        let fileId: number | null = null;
 
-            file = await File.findOne({
-                where: {
-                    filePath: relativeFilePath + '.enc'
-                }
+        if (files && files['file']) {
+            const file = files['file'][0];
+            filePath = file.path;
+
+            // Сохраняем файл в БД
+            const savedFile = await File.create({
+                fileName: file.filename,
+                filePath,
+                fileType: file.mimetype,
+                userId: req.user!.id,
+                chatId: Number(chatId),
             });
 
-            if (!file) {
-                throw new Error(`Зашифрованный файл не найден в базе данных для пути: ${relativeFilePath}`);
-            }
+            fileId = savedFile.id;
         }
 
         const message = await createMessage(
@@ -37,50 +39,53 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
             content || '',
             req.protocol,
             req.get('host') || '',
-            file ? file.filePath : undefined
+            fileId
         );
 
-        // Получаем данные пользователя, отправляющего сообщение
         const sender = await User.findByPk(req.user!.id, {
-            attributes: ['id', 'username', 'avatar'] // Получаем нужные атрибуты
+            attributes: ['id', 'username', 'avatar'],
         });
 
-        // Проверка на null для sender
         if (!sender) {
             console.error('Sender not found');
-            return res.status(404).json({ message: 'Sender not found' });
+            return res.status(404).json({ message: 'Отправитель не найден' });
         }
 
+        // Отправляем сообщение всем клиентам через WebSocket
         wss.clients.forEach((client: any) => {
             if (client.readyState === client.OPEN) {
                 const decryptedMessageContent = content ? decryptMessage(JSON.parse(message.content)) : null;
-                client.send(JSON.stringify({
-                    type: 'newMessage',
-                    message: {
-                        ...message.toJSON(),
-                        content: decryptedMessageContent || null,
-                        attachment: file ? {
-                            fileName: file.fileName,
-                            filePath: file.filePath,
-                            fileType: file.fileType,
-                        } : null,
-                        user: {
-                            id: sender.id,
-                            username: sender.username,
-                            avatar: sender.avatar,
+                client.send(
+                    JSON.stringify({
+                        type: 'newMessage',
+                        message: {
+                            ...message.toJSON(),
+                            content: decryptedMessageContent || null,
+                            attachment: filePath
+                                ? {
+                                    fileName: filePath.split('/').pop(),
+                                    filePath: filePath,
+                                }
+                                : null,
+                            user: {
+                                id: sender.id,
+                                username: sender.username,
+                                avatar: sender.avatar,
+                            },
                         },
-                    }
-                }));
+                    })
+                );
             }
         });
 
         res.status(201).json({
             ...message.toJSON(),
-            attachment: file ? {
-                fileName: file.fileName,
-                filePath: file.filePath,
-                fileType: file.fileType,
-            } : null,
+            attachment: filePath
+                ? {
+                    fileName: filePath.split('/').pop(),
+                    filePath: filePath,
+                }
+                : null,
             user: {
                 id: sender.id,
                 username: sender.username,
@@ -88,14 +93,10 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
             },
         });
     } catch (error) {
-        const err = error as Error;
-        console.error('Error creating message:', error);
-        res.status(500).json({ message: err.message });
+        console.error('Ошибка при создании сообщения:', error);
+        res.status(500).json({ message: 'Ошибка при создании сообщения.' });
     }
 };
-
-
-
 
 export const getMessagesController = async (req: Request, res: Response) => {
     const { chatId } = req.params;

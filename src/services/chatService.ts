@@ -6,6 +6,8 @@ import { decryptMessage } from '../encryption/messageEncryption';
 import file from "../models/File";
 import fs from "fs";
 import UserChats from "../models/UserChats";
+import {decryptFile} from "../encryption/fileEncryption";
+import path from "path";
 
 export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     try {
@@ -160,15 +162,19 @@ export const getChatsForUser = async (userId: number) => {
             order: [['updatedAt', 'DESC']],
         });
 
-        const userChats = chats.filter(chat =>
-            chat.users && chat.users.some(user => user.id === userId)
-        );
+        if (!chats || chats.length === 0) {
+            return []; // Если нет чатов, возвращаем пустой массив
+        }
+
+        const userChats = chats.filter(chat => chat.users && chat.users.some(user => user.id === userId));
 
         return userChats.map(chat => ({
             ...chat.toJSON(),
             chatName: chat.isGroup
                 ? chat.name
-                : (chat.users && chat.users.length > 0 ? chat.users.find(u => u.id !== userId)?.realname : 'Unknown'),
+                : chat.users && chat.users.length > 0
+                    ? chat.users.find(u => u.id !== userId)?.realname || 'Unknown'
+                    : 'Unknown',
             users: (chat.users || []).map(user => ({
                 id: user.id,
                 username: user.username,
@@ -181,13 +187,44 @@ export const getChatsForUser = async (userId: number) => {
                 ? chat.messages
                     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
                     .map((message: Message) => {
-                        const decryptedContent = decryptMessage(JSON.parse(message.content));
-                        const attachment = message.attachment
-                            ? {
-                                fileName: message.attachment.fileName,
-                                filePath: message.attachment.filePath,
+                        let decryptedContent = '';
+                        let decryptedFileName = '';
+                        try {
+                            decryptedContent = decryptMessage(JSON.parse(message.content));
+                        } catch (error) {
+                            console.error('Ошибка при расшифровке сообщения:', error);
+                            decryptedContent = message.content; // В случае ошибки, возвращаем зашифрованное сообщение
+                        }
+
+                        // Расшифровка файла
+                        let attachment = null;
+                        if (message.attachment) {
+                            const metadataPath = `${message.attachment.filePath}.meta`;
+
+                            try {
+                                // Проверяем наличие метаданных для файла
+                                if (fs.existsSync(metadataPath)) {
+                                    const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+                                    decryptedFileName = metadata.originalFileName; // Получаем оригинальное имя файла из метаданных
+                                    attachment = {
+                                        fileName: decryptedFileName,
+                                        filePath: message.attachment.filePath,
+                                    };
+                                } else {
+                                    console.error('Метаданные для файла не найдены.');
+                                    attachment = {
+                                        fileName: message.attachment.fileName,
+                                        filePath: message.attachment.filePath,
+                                    };
+                                }
+                            } catch (error) {
+                                console.error('Ошибка при расшифровке файла:', error);
+                                attachment = {
+                                    fileName: message.attachment.fileName,
+                                    filePath: message.attachment.filePath,
+                                };
                             }
-                            : null;
+                        }
 
                         return {
                             ...message.toJSON(),
@@ -198,6 +235,7 @@ export const getChatsForUser = async (userId: number) => {
                 : [],
         }));
     } catch (error) {
+        console.error('Ошибка при получении чатов для пользователя:', error);
         throw new Error('Не удалось получить чаты для пользователя');
     }
 };
