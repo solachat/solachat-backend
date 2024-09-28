@@ -5,7 +5,7 @@ import {
     getChatById,
     getChatWithMessages,
     getChatsForUser,
-    deleteChat, addUsersToGroupChat, kickUserFromChat, assignRole, getUserRoleInChat
+    deleteChat, addUsersToGroupChat, kickUserFromChat, assignRole, getUserRoleInChat, updateChatSettings
 } from '../services/chatService';
 import { UserRequest } from '../types/types';
 import multer from 'multer';
@@ -14,6 +14,7 @@ import User from "../models/User";
 import {uploadFileController} from "./fileController";
 import UserChats from "../models/UserChats";
 import Chat from "../models/Chat";
+import chat from "../models/Chat";
 
 const upload = multer();
 
@@ -63,7 +64,6 @@ export const createGroupChatController = async (req: Request, res: Response) => 
     }
 
     try {
-        // Создаем групповую беседу с сохраненной аватаркой
         const chat = await createGroupChat(userIds, groupName, creatorId, avatarUrl);
         return res.status(201).json(chat);
     } catch (error) {
@@ -71,8 +71,6 @@ export const createGroupChatController = async (req: Request, res: Response) => 
         return res.status(500).json({ message: 'Не удалось создать группу.' });
     }
 };
-
-
 
 
 export const getChatController = async (req: Request, res: Response) => {
@@ -235,4 +233,42 @@ export const assignRoleController = async (req: Request, res: Response) => {
     }
 };
 
+export const updateChatSettingsController = async (req: Request, res: Response) => {
+    const { chatId } = req.params;
+    const { groupName } = req.body; // Получаем groupName
+    const avatar = req.file; // Получаем файл
+
+    // Проверка на наличие chatId
+    if (!chatId) {
+        return res.status(400).json({ message: 'Chat ID is required' });
+    }
+
+    // Получение userId из токена
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+        return res.status(401).json({ message: 'Token is missing' });
+    }
+
+    let userId: number;
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { id: number };
+        userId = decoded.id;
+    } catch (error) {
+        return res.status(403).json({ message: 'Invalid token' });
+    }
+
+    console.log('Extracted userId:', userId);
+    console.log('Updating chat:', { chatId, groupName, avatar });
+
+    // Генерация URL для аватара, если файл существует
+    const avatarUrl = avatar ? `${req.protocol}://${req.get('host')}/uploads/images/${avatar.filename}` : undefined;
+
+    try {
+        const updatedChat = await updateChatSettings(Number(chatId), userId, groupName, avatarUrl);
+        return res.status(200).json({ message: 'Chat settings updated successfully', chat: updatedChat });
+    } catch (error) {
+        console.error('Error updating chat settings:', error);
+        return res.status(500).json({ message: 'Failed to update chat settings' });
+    }
+};
 

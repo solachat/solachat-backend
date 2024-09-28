@@ -50,7 +50,7 @@ export const createGroupChat = async (userIds: number[], chatName: string, creat
     try {
         console.log('Creating group chat with users:', userIds, 'and name:', chatName);
 
-        const chat = await Chat.create({ name: chatName, isGroup: true, avatar }); // Сохраняем аватар
+        const chat = await Chat.create({ name: chatName, isGroup: true, avatar });
 
         const users = await User.findAll({ where: { id: userIds } });
 
@@ -152,7 +152,7 @@ export const getChatsForUser = async (userId: number) => {
                     as: 'messages',
                     attributes: ['id', 'content', 'fileId', 'createdAt', 'userId', 'isEdited'],
                     include: [
-                        { model: User, as: 'user', attributes: ['username'] },
+                        { model: User, as: 'user', attributes: ['username', 'avatar'] },
                         { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] },
                     ],
                 },
@@ -250,17 +250,15 @@ export const getChatWithMessages = async (chatId: number, userId: number) => {
 export const deleteChat = async (chatId: number, userId: number, userRole: string, isGroup: boolean) => {
     try {
         if (isGroup && userRole === 'member') {
-            // Удаляем связь пользователя с группой (чатом) в таблице user_chats
             await UserChats.destroy({
                 where: {
                     userId,
                     chatId,
                 },
             });
-            return; // Если это группа и роль 'member', просто отвязываем и выходим
+            return;
         }
 
-        // Если это не группа или у пользователя другая роль, удаляем чат полностью
         const messages = await Message.findAll({ where: { chatId } });
 
         for (const message of messages) {
@@ -273,13 +271,10 @@ export const deleteChat = async (chatId: number, userId: number, userRole: strin
             }
         }
 
-        // Удаляем все сообщения чата
         await Message.destroy({ where: { chatId } });
 
-        // Удаляем связанные файлы с чатом
         await file.destroy({ where: { chatId } });
 
-        // Удаляем сам чат
         await Chat.destroy({ where: { id: chatId } });
 
     } catch (error) {
@@ -356,5 +351,35 @@ export const addUsersToGroupChat = async (chatId: number, newUserIds: number[], 
             await userChat.save();
         }
     }
+};
+
+export const updateChatSettings = async (
+    chatId: number,
+    userId: number,
+    groupName?: string,
+    avatar?: string
+) => {
+    const chat = await Chat.findByPk(chatId);
+    if (!chat) {
+        throw new Error('Chat not found');
+    }
+
+    const userRole = await getUserRoleInChat(userId, chatId);
+    if (userRole !== 'owner' && userRole !== 'admin') {
+        throw new Error('Insufficient permissions');
+    }
+
+    console.log('Current chat settings:', { name: chat.name, avatar: chat.avatar });
+
+    if (groupName) {
+        chat.name = groupName;
+    }
+
+    if (avatar) {
+        chat.avatar = avatar;
+    }
+
+    await chat.save();
+    return chat;
 };
 

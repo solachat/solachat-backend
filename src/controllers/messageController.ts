@@ -4,6 +4,7 @@ import { UserRequest } from '../types/types';
 import { wss } from '../app';
 import {decryptMessage, encryptMessage} from "../encryption/messageEncryption";
 import File from '../models/File';
+import User from "../models/User";
 
 export const sendMessageController = async (req: UserRequest, res: Response) => {
     const { chatId } = req.params;
@@ -39,6 +40,17 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
             file ? file.filePath : undefined
         );
 
+        // Получаем данные пользователя, отправляющего сообщение
+        const sender = await User.findByPk(req.user!.id, {
+            attributes: ['id', 'username', 'avatar'] // Получаем нужные атрибуты
+        });
+
+        // Проверка на null для sender
+        if (!sender) {
+            console.error('Sender not found');
+            return res.status(404).json({ message: 'Sender not found' });
+        }
+
         wss.clients.forEach((client: any) => {
             if (client.readyState === client.OPEN) {
                 const decryptedMessageContent = content ? decryptMessage(JSON.parse(message.content)) : null;
@@ -52,6 +64,11 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
                             filePath: file.filePath,
                             fileType: file.fileType,
                         } : null,
+                        user: {
+                            id: sender.id,
+                            username: sender.username,
+                            avatar: sender.avatar,
+                        },
                     }
                 }));
             }
@@ -64,6 +81,11 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
                 filePath: file.filePath,
                 fileType: file.fileType,
             } : null,
+            user: {
+                id: sender.id,
+                username: sender.username,
+                avatar: sender.avatar,
+            },
         });
     } catch (error) {
         const err = error as Error;
@@ -71,6 +93,8 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
         res.status(500).json({ message: err.message });
     }
 };
+
+
 
 
 export const getMessagesController = async (req: Request, res: Response) => {

@@ -80,7 +80,7 @@ const handleMessage = async (userId: number, rawMessage: string) => {
             include: [{
                 model: User,
                 as: 'users',
-                attributes: ['id', 'username']
+                attributes: ['id', 'username', 'avatar'] // Включаем avatar
             }]
         });
 
@@ -89,15 +89,14 @@ const handleMessage = async (userId: number, rawMessage: string) => {
             return;
         }
 
-        const isUserInChat = chat.users?.some((user: User) => user.id === userId);
+        const isUserInChat = chat.users && chat.users.some((user: User) => user.id === userId);
         if (!isUserInChat) {
             console.error(`User ${userId} is not a member of chat ${chatId}`);
             return;
         }
 
         const message = await createMessage(userId, chatId, content, 'ws', 'localhost');
-
-        broadcastMessage(chatId, message);
+        await broadcastMessage(chatId, message);
     } catch (error) {
         console.error(`Error handling message from user ${userId}:`, error);
     }
@@ -115,12 +114,7 @@ const broadcastMessage = async (chatId: number, message: Message) => {
         }
 
         const chat = await Chat.findByPk(chatId, {
-            include: [
-                {
-                    model: User,
-                    attributes: ['id']
-                }
-            ]
+            include: [{ model: User, attributes: ['id'] }]
         });
 
         if (!chat || !chat.users || !Array.isArray(chat.users)) {
@@ -138,13 +132,14 @@ const broadcastMessage = async (chatId: number, message: Message) => {
                         id: message.id,
                         content: decryptMessage(JSON.parse(message.content)),
                         createdAt: message.createdAt,
-                        sender: {
+                        userId: sender.id,
+                        user: {
                             id: sender.id,
                             username: sender.username,
-                            realname: sender.realname,
                             avatar: sender.avatar,
+                            realname: sender.realname,
                             online: sender.online,
-                        }
+                        },
                     }
                 }));
             }
@@ -153,6 +148,7 @@ const broadcastMessage = async (chatId: number, message: Message) => {
         console.error('Error broadcasting message:', error);
     }
 };
+
 
 const removeUserConnection = (userId: number) => {
     const index = connectedUsers.findIndex((user) => user.userId === userId);

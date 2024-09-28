@@ -47,6 +47,7 @@ const storage = multer.diskStorage({
         cb(null, destinationPath);
     },
     filename: (req: UserRequest, file, cb) => {
+        console.log('User in filename:', req.user)
         if (req.user && req.user.username) {
             const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
             cb(null, `${req.user.username}-${uniqueSuffix}${path.extname(file.originalname)}`);
