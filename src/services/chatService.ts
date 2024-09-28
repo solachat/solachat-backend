@@ -6,7 +6,6 @@ import { decryptMessage } from '../encryption/messageEncryption';
 import file from "../models/File";
 import fs from "fs";
 import UserChats from "../models/UserChats";
-import path from "path";
 
 export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     try {
@@ -248,8 +247,20 @@ export const getChatWithMessages = async (chatId: number, userId: number) => {
     }
 };
 
-export const deleteChat = async (chatId: number) => {
+export const deleteChat = async (chatId: number, userId: number, userRole: string, isGroup: boolean) => {
     try {
+        if (isGroup && userRole === 'member') {
+            // Удаляем связь пользователя с группой (чатом) в таблице user_chats
+            await UserChats.destroy({
+                where: {
+                    userId,
+                    chatId,
+                },
+            });
+            return; // Если это группа и роль 'member', просто отвязываем и выходим
+        }
+
+        // Если это не группа или у пользователя другая роль, удаляем чат полностью
         const messages = await Message.findAll({ where: { chatId } });
 
         for (const message of messages) {
@@ -262,15 +273,20 @@ export const deleteChat = async (chatId: number) => {
             }
         }
 
+        // Удаляем все сообщения чата
         await Message.destroy({ where: { chatId } });
 
+        // Удаляем связанные файлы с чатом
         await file.destroy({ where: { chatId } });
 
+        // Удаляем сам чат
         await Chat.destroy({ where: { id: chatId } });
+
     } catch (error) {
         throw new Error('Не удалось удалить чат');
     }
 };
+
 
 export const assignRole = async (chatId: number, userId: number, role: 'admin' | 'member'): Promise<void> => {
     const userChat = await UserChats.findOne({ where: { chatId, userId } });

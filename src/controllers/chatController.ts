@@ -12,6 +12,8 @@ import multer from 'multer';
 import jwt from "jsonwebtoken";
 import User from "../models/User";
 import {uploadFileController} from "./fileController";
+import UserChats from "../models/UserChats";
+import Chat from "../models/Chat";
 
 const upload = multer();
 
@@ -129,6 +131,7 @@ export const getChatWithMessagesController = async (req: UserRequest, res: Respo
 
 export const deleteChatController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
+    const userId = req.user?.id;
 
     try {
         const chatIdNumber = Number(chatId);
@@ -136,13 +139,34 @@ export const deleteChatController = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Invalid chat ID' });
         }
 
-        await deleteChat(chatIdNumber);
+        if (!userId) {
+            return res.status(403).json({ message: 'User information is missing' });
+        }
+
+        const userChatRecord = await UserChats.findOne({ where: { userId, chatId: chatIdNumber } });
+        if (!userChatRecord) {
+            return res.status(404).json({ message: 'User is not a member of this chat' });
+        }
+
+        const userRole = userChatRecord.role;
+
+        const chat = await Chat.findOne({ where: { id: chatIdNumber } });
+
+        if (!chat) {
+            return res.status(404).json({ message: 'Chat not found' });
+        }
+
+        const isGroup = chat.isGroup;
+
+        await deleteChat(chatIdNumber, userId, userRole, isGroup);
+
         return res.status(200).json({ message: 'Chat deleted successfully' });
     } catch (error) {
         console.error('Error deleting chat:', (error as Error).message);
         return res.status(500).json({ message: 'Failed to delete chat' });
     }
 };
+
 
 export const addUsersToChatController = async (req: Request, res: Response) => {
     const { chatId, newUserIds } = req.body;
