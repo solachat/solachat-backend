@@ -31,7 +31,16 @@ server.on('upgrade', (request, socket: Socket, head) => {
 
 initWebSocketServer(wss);
 
-app.use('/uploads', express.static(uploadsPath));
+app.use('/uploads', express.static(uploadsPath, {
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.mp4')) {
+            res.setHeader('Content-Type', 'mp4');
+        } else if (filePath.endsWith('.png') || filePath.endsWith('.jpg') || filePath.endsWith('.jpeg')) {
+            res.setHeader('Content-Type', 'image/jpeg');
+        }
+    }
+}));
+
 app.use(express.urlencoded({ extended: true }));
 app.use('/download', downloadRoutes);
 app.use(cors());
@@ -43,6 +52,8 @@ app.use('/api/tokens', tokenRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/file', fileRoutes)
+
+
 
 const PORT = process.env.PORTSOCKET || 5000;
 const wsURL = `ws://localhost:${PORT}`;
