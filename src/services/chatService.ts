@@ -161,12 +161,11 @@ export const getChatsForUser = async (userId: number) => {
         });
 
         if (!chats || chats.length === 0) {
-            return []; // Если нет чатов, возвращаем пустой массив
+            return [];
         }
 
         const userChats = chats.filter(chat => chat.users && chat.users.some(user => user.id === userId));
 
-        // Чтобы использовать `await`, мы делаем `map` асинхронной
         const resultChats = await Promise.all(userChats.map(async (chat) => {
             const messages = chat.messages
                 ? await Promise.all(chat.messages
@@ -176,23 +175,20 @@ export const getChatsForUser = async (userId: number) => {
                         let decryptedFileName = '';
 
                         try {
-                            // Используем `await` для асинхронного дешифрования сообщения и указываем, что это строка
                             decryptedContent = await decryptMessage(JSON.parse(message.content)) as string;
                         } catch (error) {
                             console.error('Ошибка при расшифровке сообщения:', error);
-                            decryptedContent = message.content; // В случае ошибки возвращаем зашифрованное сообщение
+                            decryptedContent = message.content;
                         }
 
-                        // Расшифровка файла
                         let attachment = null;
                         if (message.attachment) {
                             const metadataPath = `${message.attachment.filePath}.meta`;
 
                             try {
-                                // Проверяем наличие метаданных для файла
                                 if (fs.existsSync(metadataPath)) {
                                     const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-                                    decryptedFileName = metadata.originalFileName; // Получаем оригинальное имя файла из метаданных
+                                    decryptedFileName = metadata.originalFileName;
                                     attachment = {
                                         fileName: decryptedFileName,
                                         filePath: message.attachment.filePath,

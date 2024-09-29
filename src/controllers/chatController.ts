@@ -11,12 +11,8 @@ import { UserRequest } from '../types/types';
 import multer from 'multer';
 import jwt from "jsonwebtoken";
 import User from "../models/User";
-import {uploadFileController} from "./fileController";
 import UserChats from "../models/UserChats";
 import Chat from "../models/Chat";
-import chat from "../models/Chat";
-
-const upload = multer();
 
 export const createPrivateChatController = async (req: Request, res: Response) => {
     const { user1Id, user2Id } = req.body;
@@ -60,7 +56,7 @@ export const createGroupChatController = async (req: Request, res: Response) => 
 
     let avatarUrl: string | undefined;
     if (req.file) {
-        avatarUrl = `${req.protocol}://${req.get('host')}/uploads/images/${req.file.filename}`; // Генерация URL аватара
+        avatarUrl = `${req.protocol}://${req.get('host')}/uploads/images/${req.file.filename}`;
     }
 
     try {
