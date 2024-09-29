@@ -12,7 +12,8 @@ if (!hmacKey || hmacKey.length !== 32) {
     throw new Error('Invalid HMAC secret key length. Key must be 32 characters long.');
 }
 
-export const encryptMessage = (text: string) => {
+
+export const encryptMessage = (text: string): { iv: string; content: string; authTag: string; hmac: string } => {
     const iv = crypto.randomBytes(12);
     const cipher = crypto.createCipheriv(encryptionAlgorithm, secretKey, iv);
 
@@ -28,11 +29,12 @@ export const encryptMessage = (text: string) => {
         iv: iv.toString('hex'),
         content: encrypted.toString('hex'),
         authTag: authTag.toString('hex'),
-        hmac: hmacDigest
+        hmac: hmacDigest,
     };
 };
 
-export const decryptMessage = (hash: { iv: string, content: string, authTag: string, hmac: string }) => {
+// Функция дешифрования
+export const decryptMessage = (hash: { iv: string; content: string; authTag: string; hmac: string }): string => {
     const iv = Buffer.from(hash.iv, 'hex');
     const encryptedContent = Buffer.from(hash.content, 'hex');
     const authTag = Buffer.from(hash.authTag, 'hex');
@@ -53,3 +55,4 @@ export const decryptMessage = (hash: { iv: string, content: string, authTag: str
 
     return decrypted.toString('utf8');
 };
+

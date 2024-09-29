@@ -6,8 +6,6 @@ import { decryptMessage } from '../encryption/messageEncryption';
 import file from "../models/File";
 import fs from "fs";
 import UserChats from "../models/UserChats";
-import {decryptFile} from "../encryption/fileEncryption";
-import path from "path";
 
 export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     try {
@@ -168,32 +166,21 @@ export const getChatsForUser = async (userId: number) => {
 
         const userChats = chats.filter(chat => chat.users && chat.users.some(user => user.id === userId));
 
-        return userChats.map(chat => ({
-            ...chat.toJSON(),
-            chatName: chat.isGroup
-                ? chat.name
-                : chat.users && chat.users.length > 0
-                    ? chat.users.find(u => u.id !== userId)?.realname || 'Unknown'
-                    : 'Unknown',
-            users: (chat.users || []).map(user => ({
-                id: user.id,
-                username: user.username,
-                realname: user.realname,
-                avatar: user.avatar,
-                online: user.online,
-                role: (user as any).UserChats?.role || 'member',
-            })),
-            messages: chat.messages
-                ? chat.messages
+        // Чтобы использовать `await`, мы делаем `map` асинхронной
+        const resultChats = await Promise.all(userChats.map(async (chat) => {
+            const messages = chat.messages
+                ? await Promise.all(chat.messages
                     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-                    .map((message: Message) => {
+                    .map(async (message: Message) => {
                         let decryptedContent = '';
                         let decryptedFileName = '';
+
                         try {
-                            decryptedContent = decryptMessage(JSON.parse(message.content));
+                            // Используем `await` для асинхронного дешифрования сообщения и указываем, что это строка
+                            decryptedContent = await decryptMessage(JSON.parse(message.content)) as string;
                         } catch (error) {
                             console.error('Ошибка при расшифровке сообщения:', error);
-                            decryptedContent = message.content; // В случае ошибки, возвращаем зашифрованное сообщение
+                            decryptedContent = message.content; // В случае ошибки возвращаем зашифрованное сообщение
                         }
 
                         // Расшифровка файла
@@ -231,14 +218,35 @@ export const getChatsForUser = async (userId: number) => {
                             content: decryptedContent,
                             attachment,
                         };
-                    })
-                : [],
+                    }))
+                : [];
+
+            return {
+                ...chat.toJSON(),
+                chatName: chat.isGroup
+                    ? chat.name
+                    : chat.users && chat.users.length > 0
+                        ? chat.users.find(u => u.id !== userId)?.realname || 'Unknown'
+                        : 'Unknown',
+                users: (chat.users || []).map(user => ({
+                    id: user.id,
+                    username: user.username,
+                    realname: user.realname,
+                    avatar: user.avatar,
+                    online: user.online,
+                    role: (user as any).UserChats?.role || 'member',
+                })),
+                messages,
+            };
         }));
+
+        return resultChats;
     } catch (error) {
         console.error('Ошибка при получении чатов для пользователя:', error);
         throw new Error('Не удалось получить чаты для пользователя');
     }
 };
+
 
 
 export const getChatWithMessages = async (chatId: number, userId: number) => {

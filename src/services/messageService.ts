@@ -23,10 +23,10 @@ export const createMessage = async (
         throw new Error('User not found');
     }
 
-    // Шифруем сообщение
+    console.time('Encryption');
     const encryptedContent = encryptMessage(content);
+    console.timeEnd('Encryption');
 
-    // Сохраняем сообщение
     const message = await Message.create({
         chatId,
         userId,
@@ -77,5 +77,3 @@ export const updateMessageContent = async (messageId: number, updates: { content
         throw new Error('Failed to update message');
     }
 };
-
-

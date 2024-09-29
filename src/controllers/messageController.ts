@@ -14,7 +14,6 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
 
     try {
         const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-
         let fileId: number | null = null;
 
         if (files && files['file']) {
@@ -33,70 +32,54 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
             fileId = savedFile.id;
         }
 
-        const message = await createMessage(
-            req.user!.id,
-            Number(chatId),
-            content || '',
-            req.protocol,
-            req.get('host') || '',
-            fileId
-        );
+        // Сразу возвращаем клиенту ответ, что запрос получен
+        res.status(202).json({ message: 'Message received, processing...' });
 
-        const sender = await User.findByPk(req.user!.id, {
-            attributes: ['id', 'username', 'avatar'],
-        });
+        // Асинхронно обрабатываем остальную часть
+        process.nextTick(async () => {
+            console.time('Message Creation');
+            const message = await createMessage(
+                req.user!.id,
+                Number(chatId),
+                content || '',
+                req.protocol,
+                req.get('host') || '',
+                fileId
+            );
+            console.timeEnd('Message Creation');
 
-        if (!sender) {
-            console.error('Sender not found');
-            return res.status(404).json({ message: 'Отправитель не найден' });
-        }
+            const sender = await User.findByPk(req.user!.id, {
+                attributes: ['id', 'username', 'avatar'],
+            });
 
-        // Отправляем сообщение всем клиентам через WebSocket
-        wss.clients.forEach((client: any) => {
-            if (client.readyState === client.OPEN) {
-                const decryptedMessageContent = content ? decryptMessage(JSON.parse(message.content)) : null;
-                client.send(
-                    JSON.stringify({
-                        type: 'newMessage',
-                        message: {
-                            ...message.toJSON(),
-                            content: decryptedMessageContent || null,
-                            attachment: filePath
-                                ? {
-                                    fileName: filePath.split('/').pop(),
-                                    filePath: filePath,
-                                }
-                                : null,
-                            user: {
-                                id: sender.id,
-                                username: sender.username,
-                                avatar: sender.avatar,
-                            },
-                        },
-                    })
-                );
-            }
-        });
+            const decryptedMessageContent = content ? decryptMessage(JSON.parse(message.content)) : null;
+            const payload = JSON.stringify({
+                type: 'newMessage',
+                message: {
+                    ...message.toJSON(),
+                    content: decryptedMessageContent || null,
+                    attachment: filePath ? { fileName: filePath.split('/').pop(), filePath } : null,
+                    user: {
+                        id: sender!.id,
+                        username: sender!.username,
+                        avatar: sender!.avatar,
+                    },
+                },
+            });
 
-        res.status(201).json({
-            ...message.toJSON(),
-            attachment: filePath
-                ? {
-                    fileName: filePath.split('/').pop(),
-                    filePath: filePath,
+            // Отправляем сообщение всем клиентам через WebSocket
+            wss.clients.forEach((client: any) => {
+                if (client.readyState === client.OPEN) {
+                    client.send(payload);
                 }
-                : null,
-            user: {
-                id: sender.id,
-                username: sender.username,
-                avatar: sender.avatar,
-            },
+            });
         });
     } catch (error) {
         console.error('Ошибка при создании сообщения:', error);
         res.status(500).json({ message: 'Ошибка при создании сообщения.' });
     }
 };
+
 
 export const getMessagesController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
@@ -169,4 +152,3 @@ export const editMessageController = async (req: UserRequest, res: Response) => 
         res.status(500).json({ message: 'Ошибка при редактировании сообщения.' });
     }
 };
-

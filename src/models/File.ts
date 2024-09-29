@@ -3,7 +3,7 @@ import sequelize from '../config/db';
 import User from './User';
 import Chat from './Chat';
 
-class File extends Model {
+export class File extends Model {
     public id!: number;
     public fileName!: string;
     public fileType!: string;

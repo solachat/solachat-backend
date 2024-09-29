@@ -47,9 +47,8 @@ export const initWebSocketServer = (server: any) => {
 
                 if (parsedMessage.type === 'heartbeat') {
                     console.log(`Received heartbeat from user ${user.username}`);
-                    await updateUserStatus(userId, true);
                 } else {
-                    handleMessage(userId, parsedMessage);
+                    await handleMessage(userId, parsedMessage);
                 }
             });
 
@@ -65,7 +64,7 @@ export const initWebSocketServer = (server: any) => {
             });
 
         } catch (error) {
-            console.error('Ошибка при обработке WebSocket соединения:', error);
+            console.error('Error processing WebSocket connection:', error);
             ws.close(4003, 'Invalid token');
         }
     });
@@ -73,15 +72,10 @@ export const initWebSocketServer = (server: any) => {
 
 const handleMessage = async (userId: number, rawMessage: string) => {
     try {
-        const parsedMessage = JSON.parse(rawMessage);
-        const { chatId, content } = parsedMessage;
+        const { chatId, content } = JSON.parse(rawMessage);
 
         const chat = await Chat.findByPk(chatId, {
-            include: [{
-                model: User,
-                as: 'users',
-                attributes: ['id', 'username', 'avatar'] // Включаем avatar
-            }]
+            include: [{ model: User, as: 'users', attributes: ['id', 'username', 'avatar'] }]
         });
 
         if (!chat) {
@@ -124,26 +118,28 @@ const broadcastMessage = async (chatId: number, message: Message) => {
 
         const participantIds = chat.users.map(user => user.id);
 
-        connectedUsers.forEach(({ ws, userId }) => {
-            if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
-                ws.send(JSON.stringify({
-                    type: 'newMessage',
-                    message: {
-                        id: message.id,
-                        content: decryptMessage(JSON.parse(message.content)),
-                        createdAt: message.createdAt,
-                        userId: sender.id,
-                        user: {
-                            id: sender.id,
-                            username: sender.username,
-                            avatar: sender.avatar,
-                            realname: sender.realname,
-                            online: sender.online,
-                        },
-                    }
-                }));
+        const payload = JSON.stringify({
+            type: 'newMessage',
+            message: {
+                id: message.id,
+                content: decryptMessage(JSON.parse(message.content)),
+                createdAt: message.createdAt,
+                userId: sender.id,
+                user: {
+                    id: sender.id,
+                    username: sender.username,
+                    avatar: sender.avatar,
+                    realname: sender.realname,
+                    online: sender.online,
+                },
             }
         });
+
+        await Promise.all(connectedUsers.map(({ ws, userId }) => {
+            if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
+                return ws.send(payload);
+            }
+        }));
     } catch (error) {
         console.error('Error broadcasting message:', error);
     }
@@ -160,100 +156,21 @@ const removeUserConnection = (userId: number) => {
 const updateUserStatus = async (userId: number, isOnline: boolean) => {
     try {
         const user = await User.findByPk(userId);
+
         if (!user) {
             console.error(`User with ID ${userId} not found`);
             return;
         }
 
-        user.online = isOnline;
-        await user.save();
-        console.log(`User ${user.username} status updated to ${isOnline ? 'online' : 'offline'}`);
+        if (user.online !== isOnline) {
+            user.online = isOnline;
+            await user.save();
+            console.log(`User ${user.username} status updated to ${isOnline ? 'online' : 'offline'}`);
+        } else {
+            console.log(`User ${user.username} is already ${isOnline ? 'online' : 'offline'}. No update needed.`);
+        }
     } catch (error) {
         console.error('Error updating user status:', error);
     }
 };
 
-const notifyRoleChange = async (chatId: number, userId: number, newRole: string) => {
-    const chat = await Chat.findByPk(chatId, {
-        include: [
-            {
-                model: User,
-                attributes: ['id']
-            }
-        ]
-    });
-
-    if (!chat || !chat.users || !Array.isArray(chat.users)) {
-        console.error(`Chat with ID ${chatId} not found or has no participants`);
-        return;
-    }
-
-    const participantIds = chat.users.map(user => user.id);
-
-    connectedUsers.forEach(({ ws, userId }) => {
-        if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
-            ws.send(JSON.stringify({
-                type: 'roleChange',
-                userId: userId,
-                newRole: newRole,
-                chatId: chatId,
-            }));
-        }
-    });
-};
-
-const notifyUserAdded = async (chatId: number, newUserId: number) => {
-    const chat = await Chat.findByPk(chatId, {
-        include: [
-            {
-                model: User,
-                attributes: ['id']
-            }
-        ]
-    });
-
-    if (!chat || !chat.users || !Array.isArray(chat.users)) {
-        console.error(`Chat with ID ${chatId} not found or has no participants`);
-        return;
-    }
-
-    const participantIds = chat.users.map(user => user.id);
-
-    connectedUsers.forEach(({ ws, userId }) => {
-        if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
-            ws.send(JSON.stringify({
-                type: 'userAdded',
-                userId: newUserId,
-                chatId: chatId,
-            }));
-        }
-    });
-};
-
-const notifyUserRemoved = async (chatId: number, removedUserId: number) => {
-    const chat = await Chat.findByPk(chatId, {
-        include: [
-            {
-                model: User,
-                attributes: ['id']
-            }
-        ]
-    });
-
-    if (!chat || !chat.users || !Array.isArray(chat.users)) {
-        console.error(`Chat with ID ${chatId} not found or has no participants`);
-        return;
-    }
-
-    const participantIds = chat.users.map(user => user.id);
-
-    connectedUsers.forEach(({ ws, userId }) => {
-        if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
-            ws.send(JSON.stringify({
-                type: 'userRemoved',
-                userId: removedUserId,
-                chatId: chatId,
-            }));
-        }
-    });
-};

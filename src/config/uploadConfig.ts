@@ -1,16 +1,13 @@
-import multer from 'multer';
+import multer, { FileFilterCallback } from 'multer';
 import path from 'path';
 import fs from 'fs';
-import crypto from 'crypto';
 import { UserRequest } from '../types/types';
-
-const algorithm = 'aes-256-gcm';
-const rsaPublicKey = fs.readFileSync('public.key', 'utf8');
+import { encryptFile } from '../encryption/fileEncryption'; // Импорт функции шифрования файла
 
 // Создание каталога, если он не существует
 const ensureDirectoryExists = (dir: string) => {
     if (!fs.existsSync(dir)) {
-        console.log(`Directory ${dir} doesn't exist. Creating...`);
+        console.log(`Каталог ${dir} не существует. Создаем...`);
         fs.mkdirSync(dir, { recursive: true });
     }
 };
@@ -43,70 +40,36 @@ const getDestination = (fileExtension: string) => {
     }
 };
 
-// Шифрование файла и пути
-const encryptFile = (filePath: string, outputFilePath: string) => {
-    return new Promise<void>((resolve, reject) => {
-        const aesKey = crypto.randomBytes(32);
-        const iv = crypto.randomBytes(12);
-
-        const cipher = crypto.createCipheriv(algorithm, aesKey, iv);
-        const input = fs.createReadStream(filePath);
-        const output = fs.createWriteStream(outputFilePath);
-
-        input.pipe(cipher).pipe(output);
-
-        cipher.on('finish', () => {
-            const authTag = cipher.getAuthTag();
-
-            // Шифрование AES-ключа с помощью RSA
-            const encryptedAesKey = crypto.publicEncrypt(rsaPublicKey, aesKey);
-
-            const metadata = {
-                iv: iv.toString('hex'),
-                authTag: authTag.toString('hex'),
-                encryptedAesKey: encryptedAesKey.toString('hex'),
-                originalFilePath: filePath, // Сохраняем оригинальный путь для возможной расшифровки
-            };
-
-            // Сохранение метаданных
-            fs.writeFileSync(`${outputFilePath}.meta`, JSON.stringify(metadata));
-            resolve(); // Завершаем успешно
-        });
-
-        cipher.on('error', (err) => {
-            console.error('Ошибка при шифровании файла:', err);
-            reject(err); // Возвращаем ошибку
-        });
-    });
-};
-
+// Multer storage configuration
 const storage = multer.diskStorage({
-    destination: (req: UserRequest, file, cb) => {
+    destination: (req, file, cb) => {
         const fileExtension = path.extname(file.originalname).toLowerCase().slice(1);
         const destinationPath = getDestination(fileExtension);
-        ensureDirectoryExists(destinationPath); // Создаем директорию, если не существует
-        cb(null, destinationPath); // Указываем путь для сохранения файла
+
+        // Убедимся, что директория существует
+        ensureDirectoryExists(destinationPath);
+
+        // Передаем путь для сохранения оригинального файла
+        cb(null, destinationPath);
     },
-    filename: (req: UserRequest, file, cb) => {
+    filename: (req, file, cb) => {
+        // Генерируем уникальное имя файла с временным суффиксом
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        const encryptedFileName = `encrypted-${uniqueSuffix}${path.extname(file.originalname)}`;
-        cb(null, encryptedFileName); // Генерируем имя файла
+        const fileName = `${uniqueSuffix}${path.extname(file.originalname)}`;
+        cb(null, fileName);
     }
 });
 
-
-// Фильтр для допустимых типов файлов
-const fileFilter = (req: UserRequest, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+const fileFilter = (req: UserRequest, file: Express.Multer.File, cb: FileFilterCallback) => {
     const validTypes = ['jpeg', 'jpg', 'png', 'gif', 'pdf', 'doc', 'docx', 'txt', 'mp4', 'avi', 'mov', 'mp3', 'wav', 'zip', 'rar'];
     const extname = path.extname(file.originalname).toLowerCase().slice(1);
     if (validTypes.includes(extname)) {
         cb(null, true);
     } else {
-        cb(new Error('Invalid file type. Only images, documents, videos, audio files, and zip/rar archives are allowed.'));
+        cb(new Error('Недопустимый тип файла. Допустимы только изображения, документы, видео, аудиофайлы и архивы zip/rar.'));
     }
 };
 
-// Настройка Multer с шифрованием пути и файла
 export const upload = multer({
     storage,
     limits: { fileSize: 50 * 1024 * 1024 },

@@ -12,6 +12,7 @@ import WebSocket from 'ws';
 import { Socket } from 'net';
 import './models/associations';
 import downloadRoutes from "./routes/fileRoutes";
+import fileRoutes from "./routes/fileRoutes";
 
 const app = express();
 
@@ -41,6 +42,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/tokens', tokenRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api/file', fileRoutes)
 
 const PORT = process.env.PORTSOCKET || 5000;
 const wsURL = `ws://localhost:${PORT}`;
