@@ -18,7 +18,7 @@ router.post(
     uploadFileController
 );
 
-router.post('/:chatId', authenticateToken, upload.fields([{ name: 'file', maxCount: 1 }]), sendMessageController);
+router.post('/:chatId', authenticateToken, upload.fields([{ name: 'file', maxCount: 5 }]), sendMessageController);
 
 
 

@@ -173,4 +173,3 @@ const updateUserStatus = async (userId: number, isOnline: boolean) => {
         console.error('Error updating user status:', error);
     }
 };
-

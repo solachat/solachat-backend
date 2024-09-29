@@ -4,7 +4,7 @@ import Chat from './Chat';
 import User from './User';
 import File from './File';
 
-class Message extends Model {
+export class Message extends Model {
     public id!: number;
     public content!: string;
     public chatId!: number;
