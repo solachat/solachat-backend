@@ -8,24 +8,10 @@ export const createMessage = async (
     userId: number,
     chatId: number,
     content: string,
-    protocol: string,
-    host: string,
-    fileId?: number | null
+    fileId: number | null,
+    user: User
 ) => {
-    const chat = await Chat.findByPk(chatId);
-    const user = await User.findByPk(userId);
-
-    if (!chat) {
-        throw new Error('Chat not found');
-    }
-
-    if (!user) {
-        throw new Error('User not found');
-    }
-
-    console.time('Encryption');
     const encryptedContent = encryptMessage(content);
-    console.timeEnd('Encryption');
 
     const message = await Message.create({
         chatId,
@@ -40,40 +26,20 @@ export const createMessage = async (
 
 
 export const getMessages = async (chatId: number) => {
-    const messages = await Message.findAll({
+    return await Message.findAll({
         where: { chatId },
         include: [
-            {
-                model: User,
-                attributes: ['id', 'username', 'avatar'],
-            },
-            {
-                model: File,
-                as: 'attachment',
-                attributes: ['fileName', 'filePath', 'fileType'],
-            }
+            { model: User, attributes: ['id', 'username', 'avatar'] },
+            { model: File, as: 'attachment', attributes: ['fileName', 'filePath', 'fileType'] },
         ],
         order: [['createdAt', 'ASC']]
     });
-
-    return messages;
 };
 
 export const getMessageById = async (messageId: number) => {
-    try {
-        const message = await Message.findByPk(messageId);
-        return message;
-    } catch (error) {
-        console.error('Error fetching message by ID:', error);
-        throw new Error('Failed to fetch message');
-    }
+    return await Message.findByPk(messageId);
 };
 
 export const updateMessageContent = async (messageId: number, updates: { content: string; isEdited: boolean }) => {
-    try {
-        await Message.update(updates, { where: { id: messageId } });
-    } catch (error) {
-        console.error('Error updating message:', error);
-        throw new Error('Failed to update message');
-    }
+    await Message.update(updates, { where: { id: messageId } });
 };

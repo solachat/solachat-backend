@@ -55,7 +55,6 @@ export const initWebSocketServer = (server: any) => {
             ws.on('close', async (code, reason) => {
                 console.log(`User ${user.username} disconnected with code ${code}, reason: ${reason}`);
                 removeUserConnection(userId);
-
                 await updateUserStatus(userId, false);
             });
 
@@ -70,97 +69,106 @@ export const initWebSocketServer = (server: any) => {
     });
 };
 
-const handleMessage = async (userId: number, rawMessage: string) => {
+const handleMessage = async (userId: number, parsedMessage: any): Promise<void> => {
     try {
-        const { chatId, content } = JSON.parse(rawMessage);
+        console.time('Message Handling');
+        const { chatId, content } = parsedMessage;
 
-        const chat = await Chat.findByPk(chatId, {
-            include: [{ model: User, as: 'users', attributes: ['id', 'username', 'avatar'] }]
-        });
+        const chat = await getChatAndUsers(chatId);
+        if (!chat || !chat.users || !isUserInChat(chat.users, userId)) return;
 
-        if (!chat) {
-            console.error(`Chat with ID ${chatId} not found`);
-            return;
-        }
+        const sender = await getUserById(userId);
+        if (!sender) return;
 
-        const isUserInChat = chat.users && chat.users.some((user: User) => user.id === userId);
-        if (!isUserInChat) {
-            console.error(`User ${userId} is not a member of chat ${chatId}`);
-            return;
-        }
+        const message = await createAndBroadcastMessage(chatId, userId, content, sender);
 
-        const message = await createMessage(userId, chatId, content, 'ws', 'localhost');
-        await broadcastMessage(chatId, message);
+        console.timeEnd('Message Handling');
     } catch (error) {
         console.error(`Error handling message from user ${userId}:`, error);
     }
 };
 
+const createAndBroadcastMessage = async (chatId: number, userId: number, content: string, sender: User) => {
+    console.time('Message Encryption');
+    const message = await createMessage(userId, chatId, content, null, sender);
+    console.timeEnd('Message Encryption');
+
+    console.time('Message Broadcasting');
+    await broadcastMessage(chatId, message);
+    console.timeEnd('Message Broadcasting');
+
+    return message;
+};
+
 const broadcastMessage = async (chatId: number, message: Message) => {
     try {
-        const sender = await User.findByPk(message.userId, {
-            attributes: ['id', 'username', 'realname', 'avatar', 'online'],
-        });
+        const sender = await getUserById(message.userId);
+        if (!sender) return;
 
-        if (!sender) {
-            console.error('Sender not found');
-            return;
-        }
+        const chat = await getChatParticipants(chatId);
+        if (!chat || !chat.users) return;
 
-        const chat = await Chat.findByPk(chatId, {
-            include: [{ model: User, attributes: ['id'] }]
-        });
+        const messagePayload = createMessagePayload(message, sender);
 
-        if (!chat || !chat.users || !Array.isArray(chat.users)) {
-            console.error(`Chat with ID ${chatId} not found or has no participants`);
-            return;
-        }
-
-        const participantIds = chat.users.map(user => user.id);
-
-        const payload = JSON.stringify({
-            type: 'newMessage',
-            message: {
-                id: message.id,
-                content: decryptMessage(JSON.parse(message.content)),
-                createdAt: message.createdAt,
-                userId: sender.id,
-                user: {
-                    id: sender.id,
-                    username: sender.username,
-                    avatar: sender.avatar,
-                    realname: sender.realname,
-                    online: sender.online,
-                },
-            }
-        });
-
-        await Promise.all(connectedUsers.map(({ ws, userId }) => {
-            if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
-                return ws.send(payload);
-            }
-        }));
+        broadcastToParticipants(chat.users, messagePayload);
     } catch (error) {
         console.error('Error broadcasting message:', error);
     }
 };
 
+const createMessagePayload = (message: Message, sender: User) => {
+    return JSON.stringify({
+        type: 'newMessage',
+        message: {
+            id: message.id,
+            content: decryptMessage(JSON.parse(message.content)),
+            createdAt: message.createdAt,
+            sender: {
+                id: sender.id,
+                username: sender.username,
+                realname: sender.realname,
+                avatar: sender.avatar,
+                online: sender.online,
+            }
+        }
+    });
+};
+
+const broadcastToParticipants = (participants: User[], payload: string) => {
+    const participantIds = participants.map(user => user.id);
+    connectedUsers.forEach(({ ws, userId }) => {
+        if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
+            ws.send(payload);
+        }
+    });
+};
+
+const getChatAndUsers = async (chatId: number) => {
+    console.time('Database Query (Chat and Users)');
+    const chat = await Chat.findByPk(chatId, {
+        include: [{ model: User, as: 'users', attributes: ['id', 'username', 'avatar'] }],
+    });
+    console.timeEnd('Database Query (Chat and Users)');
+    return chat;
+};
+
+const getChatParticipants = async (chatId: number) => {
+    return await Chat.findByPk(chatId, { include: [{ model: User, attributes: ['id'] }] });
+};
+
+const isUserInChat = (users: User[], userId: number) => {
+    return users.some(user => user.id === userId);
+};
 
 const removeUserConnection = (userId: number) => {
-    const index = connectedUsers.findIndex((user) => user.userId === userId);
-    if (index !== -1) {
-        connectedUsers.splice(index, 1);
-    }
+    const index = connectedUsers.findIndex(user => user.userId === userId);
+    if (index !== -1) connectedUsers.splice(index, 1);
 };
 
 const updateUserStatus = async (userId: number, isOnline: boolean) => {
     try {
         const user = await User.findByPk(userId);
-
-        if (!user) {
-            console.error(`User with ID ${userId} not found`);
-            return;
-        }
+        if (!user) return;
 
         if (user.online !== isOnline) {
             user.online = isOnline;

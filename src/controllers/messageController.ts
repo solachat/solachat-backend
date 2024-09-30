@@ -1,78 +1,87 @@
 import { Request, Response } from 'express';
-import {createMessage, getMessageById, getMessages, updateMessageContent} from '../services/messageService';
+import {
+    createMessage,
+    getMessageById,
+    getMessages,
+    updateMessageContent
+} from '../services/messageService';
 import { UserRequest } from '../types/types';
 import { wss } from '../app';
-import {decryptMessage, encryptMessage} from "../encryption/messageEncryption";
+import { decryptMessage, encryptMessage } from "../encryption/messageEncryption";
 import File from '../models/File';
 import User from "../models/User";
-import {uploadFileController} from "./fileController";
+import Chat from "../models/Chat";
+
+const broadcastToClients = (type: string, payload: object) => {
+    const messagePayload = JSON.stringify({ type, ...payload });
+    wss.clients.forEach((client: any) => {
+        if (client.readyState === client.OPEN) {
+            client.send(messagePayload);
+        }
+    });
+};
 
 export const sendMessageController = async (req: UserRequest, res: Response) => {
     const { chatId } = req.params;
     const { content } = req.body;
-    let filePath: string | undefined;
+    let fileId: number | null = null;
 
     try {
         const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-        let fileId: number | null = null;
 
-        if (files && files['file']) {
-            const file = files['file'][0];
-            filePath = file.path;
-
-            // Сохраняем файл в БД
-            const savedFile = await File.create({
-                fileName: file.filename,
-                filePath,
-                fileType: file.mimetype,
-                userId: req.user!.id,
-                chatId: Number(chatId),
-            });
-
-            fileId = savedFile.id;
-        }
-
-        // Сразу возвращаем клиенту ответ, что запрос получен
         res.status(202).json({ message: 'Message received, processing...' });
 
-        // Асинхронно обрабатываем остальную часть
         process.nextTick(async () => {
-            console.time('Message Creation');
+            console.time('Message Processing');
+            console.time('DB Query: User and Chat');
+
+            const [sender, chat] = await Promise.all([
+                User.findByPk(req.user!.id, { attributes: ['id', 'username', 'avatar'] }),
+                Chat.findByPk(Number(chatId)),
+            ]);
+
+            console.timeEnd('DB Query: User and Chat');
+
+            if (!sender || !chat) return;
+
+            const file = files?.['file']?.[0];
+            if (file) {
+                console.time('DB Write: File');
+                const savedFile = await File.create({
+                    fileName: file.filename,
+                    filePath: file.path,
+                    fileType: file.mimetype,
+                    userId: req.user!.id,
+                    chatId: Number(chatId),
+                });
+                fileId = savedFile.id;
+                console.timeEnd('DB Write: File');
+            }
+
+            console.time('DB Write: Message');
             const message = await createMessage(
                 req.user!.id,
                 Number(chatId),
                 content || '',
-                req.protocol,
-                req.get('host') || '',
-                fileId
+                fileId,
+                sender
             );
-            console.timeEnd('Message Creation');
+            console.timeEnd('DB Write: Message');
 
-            const sender = await User.findByPk(req.user!.id, {
-                attributes: ['id', 'username', 'avatar'],
-            });
-
+            console.time('Decrypt Message');
             const decryptedMessageContent = content ? decryptMessage(JSON.parse(message.content)) : null;
-            const payload = JSON.stringify({
-                type: 'newMessage',
+            console.timeEnd('Decrypt Message');
+
+            broadcastToClients('newMessage', {
                 message: {
                     ...message.toJSON(),
                     content: decryptedMessageContent || null,
-                    attachment: filePath ? { fileName: filePath.split('/').pop(), filePath } : null,
-                    user: {
-                        id: sender!.id,
-                        username: sender!.username,
-                        avatar: sender!.avatar,
-                    },
-                },
-            });
-
-            // Отправляем сообщение всем клиентам через WebSocket
-            wss.clients.forEach((client: any) => {
-                if (client.readyState === client.OPEN) {
-                    client.send(payload);
+                    attachment: file ? { fileName: file.filename, filePath: file.path } : null,
+                    user: { id: sender.id, username: sender.username, avatar: sender.avatar },
                 }
             });
+
+            console.timeEnd('Message Processing');
         });
     } catch (error) {
         console.error('Ошибка при создании сообщения:', error);
@@ -80,25 +89,18 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
     }
 };
 
-
 export const getMessagesController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
     try {
         const messages = await getMessages(Number(chatId));
-
-        const decryptedMessages = messages.map((message) => {
-            const decryptedContent = decryptMessage(JSON.parse(message.content));
-            return {
-                ...message.toJSON(),
-                content: decryptedContent
-            };
-        });
-
+        const decryptedMessages = messages.map((message) => ({
+            ...message.toJSON(),
+            content: decryptMessage(JSON.parse(message.content))
+        }));
         res.status(200).json(decryptedMessages);
     } catch (error) {
-        const err = error as Error;
-        console.error('Error getting messages:', err.message);
-        res.status(500).json({ message: err.message });
+        console.error('Error getting messages:', error);
+        res.status(500).json({ message: 'Ошибка при получении сообщений.' });
     }
 };
 
@@ -112,43 +114,53 @@ export const editMessageController = async (req: UserRequest, res: Response) => 
 
     try {
         const message = await getMessageById(Number(messageId));
-
-        if (!message) {
-            return res.status(404).json({ message: 'Сообщение не найдено.' });
-        }
+        if (!message) return res.status(404).json({ message: 'Сообщение не найдено.' });
 
         if (message.userId !== req.user!.id) {
             return res.status(403).json({ message: 'Вы не можете редактировать это сообщение.' });
         }
 
         const encryptedContent = encryptMessage(content);
+        await updateMessageContent(Number(messageId), { content: JSON.stringify(encryptedContent), isEdited: true });
 
-        await updateMessageContent(Number(messageId), {
-            content: JSON.stringify(encryptedContent),
-            isEdited: true,
-        });
-
-        const decryptedMessageContent = decryptMessage(encryptedContent);
-
-        wss.clients.forEach((client: any) => {
-            if (client.readyState === client.OPEN) {
-                client.send(JSON.stringify({
-                    type: 'editMessage',
-                    message: {
-                        id: message.id,
-                        content: decryptedMessageContent,
-                        isEdited: true,
-                        chatId: message.chatId,
-                        updatedAt: new Date().toISOString(),
-                    }
-                }));
+        broadcastToClients('editMessage', {
+            message: {
+                id: message.id,
+                content: decryptMessage(encryptedContent),
+                isEdited: true,
+                chatId: message.chatId,
+                updatedAt: new Date().toISOString(),
             }
         });
 
-        res.status(200).json({ message: 'Сообщение успешно обновлено' });
-
+        res.status(200).json({ message: 'Сообщение успешно обновлено.' });
     } catch (error) {
-        console.error('Error editing message:', error);
+        console.error('Ошибка при редактировании сообщения:', error);
         res.status(500).json({ message: 'Ошибка при редактировании сообщения.' });
+    }
+};
+
+export const deleteMessageController = async (req: UserRequest, res: Response) => {
+    const { messageId } = req.params;
+
+    try {
+        const message = await getMessageById(Number(messageId));
+        if (!message) return res.status(404).json({ message: 'Сообщение не найдено.' });
+
+        if (message.userId !== req.user!.id) {
+            return res.status(403).json({ message: 'Вы не можете удалить это сообщение.' });
+        }
+
+        await message.destroy();
+
+        broadcastToClients('deleteMessage', {
+            messageId: message.id,
+            chatId: message.chatId,
+        });
+
+        res.status(200).json({ message: 'Сообщение успешно удалено.' });
+    } catch (error) {
+        console.error('Ошибка при удалении сообщения:', error);
+        res.status(500).json({ message: 'Ошибка при удалении сообщения.' });
     }
 };

@@ -33,7 +33,6 @@ export const encryptMessage = (text: string): { iv: string; content: string; aut
     };
 };
 
-// Функция дешифрования
 export const decryptMessage = (hash: { iv: string; content: string; authTag: string; hmac: string }): string => {
     const iv = Buffer.from(hash.iv, 'hex');
     const encryptedContent = Buffer.from(hash.content, 'hex');
