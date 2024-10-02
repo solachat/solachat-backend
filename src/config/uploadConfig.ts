@@ -40,25 +40,21 @@ const getDestination = (fileExtension: string) => {
     }
 };
 
-// Multer storage configuration
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         const fileExtension = path.extname(file.originalname).toLowerCase().slice(1);
         const destinationPath = getDestination(fileExtension);
 
-        // Убедимся, что директория существует
-        ensureDirectoryExists(destinationPath);
-
-        // Передаем путь для сохранения оригинального файла
+        ensureDirectoryExists(destinationPath); // Убедимся, что директория существует
         cb(null, destinationPath);
     },
     filename: (req, file, cb) => {
-        // Генерируем уникальное имя файла с временным суффиксом
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        const fileName = `${uniqueSuffix}${path.extname(file.originalname)}`;
-        cb(null, fileName);
+        // Сохраняем файл с оригинальным именем
+        cb(null, file.originalname);
     }
 });
+
+
 
 const fileFilter = (req: UserRequest, file: Express.Multer.File, cb: FileFilterCallback) => {
     const validTypes = ['jpeg', 'jpg', 'png', 'gif', 'pdf', 'doc', 'docx', 'txt', 'mp4', 'avi', 'mov', 'mp3', 'wav', 'zip', 'rar'];

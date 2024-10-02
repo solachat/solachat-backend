@@ -6,6 +6,7 @@ import { decryptMessage } from '../encryption/messageEncryption';
 import file from "../models/File";
 import fs from "fs";
 import UserChats from "../models/UserChats";
+import { decryptFile } from '../encryption/fileEncryption';
 
 export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     try {
@@ -172,26 +173,32 @@ export const getChatsForUser = async (userId: number) => {
                     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
                     .map(async (message: Message) => {
                         let decryptedContent = '';
-                        let decryptedFileName = '';
+                        let attachment = null;
 
+                        // Дешифрование содержимого сообщения
                         try {
                             decryptedContent = await decryptMessage(JSON.parse(message.content)) as string;
                         } catch (error) {
                             console.error('Ошибка при расшифровке сообщения:', error);
-                            decryptedContent = message.content;
+                            decryptedContent = message.content; // Если ошибка, возвращаем оригинал
                         }
 
-                        let attachment = null;
+                        // Проверяем вложение
                         if (message.attachment) {
-                            const metadataPath = `${message.attachment.filePath}.meta`;
+                            const encryptedFilePath = message.attachment.filePath; // Путь к зашифрованному файлу
+                            const metadataPath = `${encryptedFilePath}.meta`; // Путь к метаданным
 
                             try {
                                 if (fs.existsSync(metadataPath)) {
                                     const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-                                    decryptedFileName = metadata.originalFileName;
+                                    const decryptedFilePath = `${encryptedFilePath.replace('.enc', '')}.decrypted`; // Путь для расшифровки
+
+                                    // Дешифруем файл, если он зашифрован
+                                    await decryptFile(encryptedFilePath);
+
                                     attachment = {
-                                        fileName: decryptedFileName,
-                                        filePath: message.attachment.filePath,
+                                        fileName: metadata.originalFileName,
+                                        filePath: decryptedFilePath, // Возвращаем путь к расшифрованному файлу
                                     };
                                 } else {
                                     console.error('Метаданные для файла не найдены.');
@@ -201,7 +208,7 @@ export const getChatsForUser = async (userId: number) => {
                                     };
                                 }
                             } catch (error) {
-                                console.error('Ошибка при расшифровке файла:', error);
+                                console.error('Ошибка при обработке вложения:', error);
                                 attachment = {
                                     fileName: message.attachment.fileName,
                                     filePath: message.attachment.filePath,
@@ -242,6 +249,7 @@ export const getChatsForUser = async (userId: number) => {
         throw new Error('Не удалось получить чаты для пользователя');
     }
 };
+
 
 
 
