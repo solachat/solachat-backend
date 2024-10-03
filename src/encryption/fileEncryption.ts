@@ -56,7 +56,7 @@ export const decryptFile = (encryptedFilePath: string) => {
         const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
         const iv = Buffer.from(metadata.iv, 'hex');
         const authTag = Buffer.from(metadata.authTag, 'hex');
-        const originalFileName = metadata.originalFileName; // Получаем оригинальное имя файла
+        const originalFileName = metadata.originalFileName;
 
         console.log(`IV: ${iv.toString('hex')}, AuthTag: ${authTag.toString('hex')}`);
 
@@ -64,7 +64,7 @@ export const decryptFile = (encryptedFilePath: string) => {
         decipher.setAuthTag(authTag);
 
         const input = fs.createReadStream(encryptedFilePath);
-        const outputFilePath = path.join(path.dirname(encryptedFilePath), originalFileName); // Сохраняем с оригинальным именем
+        const outputFilePath = path.join(path.dirname(encryptedFilePath), originalFileName);
 
         const output = fs.createWriteStream(outputFilePath);
 

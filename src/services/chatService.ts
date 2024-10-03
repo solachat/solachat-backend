@@ -191,7 +191,7 @@ export const getChatsForUser = async (userId: number) => {
                             try {
                                 if (fs.existsSync(metadataPath)) {
                                     const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-                                    const decryptedFilePath = `${encryptedFilePath.replace('.enc', '')}.decrypted`; // Путь для расшифровки
+                                    const decryptedFilePath = `${encryptedFilePath.replace('.enc', '')}`; // Путь для расшифровки
 
                                     // Дешифруем файл, если он зашифрован
                                     await decryptFile(encryptedFilePath);

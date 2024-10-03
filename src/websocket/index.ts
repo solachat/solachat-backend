@@ -6,15 +6,17 @@ import Message from '../models/Message';
 import { createMessage } from '../services/messageService';
 import Chat from '../models/Chat';
 import { decryptMessage } from '../encryption/messageEncryption';
+import { initiateCall, answerCall, rejectCall, initiateGroupCall, answerGroupCall, rejectGroupCall } from '../services/callService';
+
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
-interface WebSocketUser {
+export interface WebSocketUser {
     ws: WebSocket;
     userId: number;
 }
 
-const connectedUsers: WebSocketUser[] = [];
+export const connectedUsers: WebSocketUser[] = [];
 
 export const initWebSocketServer = (server: any) => {
     const wss = new WebSocket.Server({ server });
@@ -37,25 +39,30 @@ export const initWebSocketServer = (server: any) => {
                 return;
             }
 
-            await updateUserStatus(userId, true);
-            console.log(`User ${user.username} is now online`);
-
             connectedUsers.push({ ws, userId });
+            console.log(`User ${user.username} is now online`);
 
             ws.on('message', async (message: string) => {
                 const parsedMessage = JSON.parse(message);
 
-                if (parsedMessage.type === 'heartbeat') {
-                    console.log(`Received heartbeat from user ${user.username}`);
-                } else {
-                    await handleMessage(userId, parsedMessage);
+                if (parsedMessage.type === 'callOffer') {
+                    await initiateCall(userId, parsedMessage.toUserId);
+                } else if (parsedMessage.type === 'groupCallOffer') {
+                    await initiateGroupCall(userId, parsedMessage.participantUserIds);
+                } else if (parsedMessage.type === 'callAnswer') {
+                    await answerCall(parsedMessage.fromUserId, userId);
+                } else if (parsedMessage.type === 'groupCallAnswer') {
+                    await answerGroupCall(parsedMessage.fromUserId, parsedMessage.groupId, userId);
+                } else if (parsedMessage.type === 'callReject') {
+                    await rejectCall(parsedMessage.fromUserId, userId);
+                } else if (parsedMessage.type === 'groupCallReject') {
+                    await rejectGroupCall(parsedMessage.fromUserId, userId);
                 }
             });
 
             ws.on('close', async (code, reason) => {
                 console.log(`User ${user.username} disconnected with code ${code}, reason: ${reason}`);
                 removeUserConnection(userId);
-                await updateUserStatus(userId, false);
             });
 
             ws.on('error', (error) => {

@@ -13,6 +13,7 @@ import { Socket } from 'net';
 import './models/associations';
 import downloadRoutes from "./routes/fileRoutes";
 import fileRoutes from "./routes/fileRoutes";
+import callRoutes from './routes/callRoutes';
 
 const app = express();
 
@@ -46,6 +47,7 @@ app.use('/download', downloadRoutes);
 app.use(cors());
 app.use(express.json());
 
+app.use('/api/call', callRoutes)
 app.use('/api', walletRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/tokens', tokenRoutes);
