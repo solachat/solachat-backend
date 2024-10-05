@@ -47,7 +47,7 @@ app.use('/download', downloadRoutes);
 app.use(cors());
 app.use(express.json());
 
-app.use('/api/call', callRoutes)
+app.use('/api/calls', callRoutes)
 app.use('/api', walletRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/tokens', tokenRoutes);
