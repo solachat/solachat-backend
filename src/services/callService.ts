@@ -1,5 +1,5 @@
 import WebSocket from 'ws';
-import {connectedUsers, WebSocketUser} from '../websocket/index'; // массив подключенных пользователей
+import {connectedUsers, WebSocketUser} from '../websocket/index';
 
 export const initiateCall = async (fromUserId: number, toUserId: number) => {
     const targetUser = connectedUsers.find((user: WebSocketUser) => user.userId === toUserId);
@@ -17,7 +17,6 @@ export const initiateCall = async (fromUserId: number, toUserId: number) => {
     }
 };
 
-// Ответ на приватный звонок
 export const answerCall = async (fromUserId: number, toUserId: number) => {
     const callerUser = connectedUsers.find((user: WebSocketUser) => user.userId === fromUserId);
 
@@ -34,7 +33,6 @@ export const answerCall = async (fromUserId: number, toUserId: number) => {
     }
 };
 
-// Отклонение приватного звонка
 export const rejectCall = async (fromUserId: number, toUserId: number) => {
     const callerUser = connectedUsers.find((user: WebSocketUser) => user.userId === fromUserId);
 
@@ -47,7 +45,6 @@ export const rejectCall = async (fromUserId: number, toUserId: number) => {
     }
 };
 
-// Инициация группового звонка
 export const initiateGroupCall = async (fromUserId: number, participantUserIds: number[]) => {
     participantUserIds.forEach(toUserId => {
         const targetUser = connectedUsers.find((user: WebSocketUser) => user.userId === toUserId);
@@ -66,7 +63,6 @@ export const initiateGroupCall = async (fromUserId: number, participantUserIds: 
     return true;
 };
 
-// Ответ на групповой звонок
 export const answerGroupCall = async (fromUserId: number, groupId: number, toUserId: number) => {
     const callerUser = connectedUsers.find((user: WebSocketUser) => user.userId === fromUserId);
 
@@ -78,7 +74,6 @@ export const answerGroupCall = async (fromUserId: number, groupId: number, toUse
         });
         callerUser.ws.send(message);
 
-        // TODO: Уведомление другим участникам группы
         return true;
     } else {
         console.error('Caller user is not available for group call');
@@ -86,7 +81,6 @@ export const answerGroupCall = async (fromUserId: number, groupId: number, toUse
     }
 };
 
-// Отклонение группового звонка
 export const rejectGroupCall = async (fromUserId: number, toUserId: number) => {
     const callerUser = connectedUsers.find((user: WebSocketUser) => user.userId === fromUserId);
 

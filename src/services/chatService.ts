@@ -8,38 +8,48 @@ import fs from "fs";
 import UserChats from "../models/UserChats";
 import { decryptFile } from '../encryption/fileEncryption';
 
+const findUsersByIds = async (userIds: number[]) => {
+    const users = await User.findAll({ where: { id: userIds } });
+    if (users.length !== userIds.length) {
+        throw new Error('Некоторые пользователи не найдены');
+    }
+    return users;
+};
+
+const upsertUserChat = async (chatId: number, userId: number, role: 'owner' | 'member') => {
+    const [userChat, created] = await UserChats.findOrCreate({
+        where: { chatId, userId },
+        defaults: { role }
+    });
+
+    if (!created && role === 'owner' && userChat.role !== 'owner') {
+        userChat.role = 'owner';
+        await userChat.save();
+    }
+};
+
 export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     try {
         const chats = await Chat.findAll({
             where: { isGroup: false },
-            include: [
-                {
-                    model: User,
-                    as: 'users',
-                    where: { id: { [Op.in]: [user1Id, user2Id] } },
-                    through: { attributes: [] },
-                }
-            ]
+            include: [{
+                model: User,
+                as: 'users',
+                where: { id: { [Op.in]: [user1Id, user2Id] } },
+                through: { attributes: [] },
+            }]
         });
 
         const existingChat = chats.find(chat => {
-            const userIds = chat.users ? chat.users.map(user => user.id) : [];
+            const userIds = chat.users?.map(user => user.id) || [];
             return userIds.includes(user1Id) && userIds.includes(user2Id) && userIds.length === 2;
         });
 
-        if (existingChat) {
-            return existingChat;
-        }
+        if (existingChat) return existingChat;
 
         const newChat = await Chat.create({ isGroup: false });
-        const user1 = await User.findByPk(user1Id);
-        const user2 = await User.findByPk(user2Id);
-
-        if (!user1 || !user2) {
-            throw new Error('Один или оба пользователя не найдены');
-        }
-
-        await newChat.addUsers([user1, user2]);
+        const users = await findUsersByIds([user1Id, user2Id]);
+        await newChat.addUsers(users);
 
         return newChat;
     } catch (error) {
@@ -49,46 +59,15 @@ export const createPrivateChat = async (user1Id: number, user2Id: number) => {
 
 export const createGroupChat = async (userIds: number[], chatName: string, creatorId: number, avatar?: string) => {
     try {
-        console.log('Creating group chat with users:', userIds, 'and name:', chatName);
-
         const chat = await Chat.create({ name: chatName, isGroup: true, avatar });
-
-        const users = await User.findAll({ where: { id: userIds } });
-
-        if (users.length !== userIds.length) {
-            console.error('Некоторые пользователи не найдены:', userIds);
-            throw new Error('Некоторые пользователи не найдены');
-        }
-
+        const users = await findUsersByIds(userIds);
         await chat.addUsers(users);
 
-        for (const user of users) {
-            const role = user.id === creatorId ? 'owner' : 'member';
+        await Promise.all(users.map(user => upsertUserChat(chat.id, user.id, user.id === creatorId ? 'owner' : 'member')));
 
-            const existingUserChat = await UserChats.findOne({
-                where: {
-                    chatId: chat.id,
-                    userId: user.id,
-                },
-            });
-
-            if (!existingUserChat) {
-                await UserChats.create({
-                    chatId: chat.id,
-                    userId: user.id,
-                    role: role,
-                });
-            } else if (user.id === creatorId && existingUserChat.role !== 'owner') {
-                existingUserChat.role = 'owner';
-                await existingUserChat.save();
-            }
-        }
-
-        console.log('Group chat created successfully with owner:', creatorId);
         return chat;
     } catch (error) {
-        console.error('Error during group chat creation:', error);
-        throw new Error('Failed to create group chat');
+        throw new Error('Не удалось создать групповой чат');
     }
 };
 
@@ -100,7 +79,7 @@ export const getChatById = async (chatId: number) => {
                     model: User,
                     as: 'users',
                     attributes: ['id', 'username', 'realname', 'avatar', 'online'],
-                    through: { attributes: [] },
+                    through: { attributes: [] }
                 },
                 {
                     model: Message,
@@ -118,21 +97,16 @@ export const getChatById = async (chatId: number) => {
             order: [['messages', 'createdAt', 'ASC']],
         });
 
-        if (!chat) {
-            throw new Error('Чат не найден');
-        }
+        if (!chat) throw new Error('Чат не найден');
 
         const decryptedMessages = chat.messages?.map((message: Message) => ({
             ...message.toJSON(),
             content: decryptMessage(JSON.parse(message.content))
         }));
 
-        return {
-            ...chat.toJSON(),
-            messages: decryptedMessages
-        };
+        return { ...chat.toJSON(), messages: decryptedMessages };
     } catch (error) {
-        throw new Error('Не удалось получить чат с ID ' + chatId);
+        throw new Error('Не удалось получить чат');
     }
 };
 
@@ -175,62 +149,25 @@ export const getChatsForUser = async (userId: number) => {
                         let decryptedContent = '';
                         let attachment = null;
 
-                        // Дешифрование содержимого сообщения
-                        try {
-                            decryptedContent = await decryptMessage(JSON.parse(message.content)) as string;
-                        } catch (error) {
-                            console.error('Ошибка при расшифровке сообщения:', error);
-                            decryptedContent = message.content; // Если ошибка, возвращаем оригинал
-                        }
+                    try {
+                        decryptedContent = decryptMessage(JSON.parse(message.content));
+                    } catch (error) {
+                        console.error('Ошибка расшифровки сообщения:', error);
+                    }
 
-                        // Проверяем вложение
-                        if (message.attachment) {
-                            const encryptedFilePath = message.attachment.filePath; // Путь к зашифрованному файлу
-                            const metadataPath = `${encryptedFilePath}.meta`; // Путь к метаданным
+                    if (message.attachment) {
+                        attachment = await handleFileAttachment(message.attachment);
+                    }
 
-                            try {
-                                if (fs.existsSync(metadataPath)) {
-                                    const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-                                    const decryptedFilePath = `${encryptedFilePath.replace('.enc', '')}`; // Путь для расшифровки
-
-                                    // Дешифруем файл, если он зашифрован
-                                    await decryptFile(encryptedFilePath);
-
-                                    attachment = {
-                                        fileName: metadata.originalFileName,
-                                        filePath: decryptedFilePath, // Возвращаем путь к расшифрованному файлу
-                                    };
-                                } else {
-                                    console.error('Метаданные для файла не найдены.');
-                                    attachment = {
-                                        fileName: message.attachment.fileName,
-                                        filePath: message.attachment.filePath,
-                                    };
-                                }
-                            } catch (error) {
-                                console.error('Ошибка при обработке вложения:', error);
-                                attachment = {
-                                    fileName: message.attachment.fileName,
-                                    filePath: message.attachment.filePath,
-                                };
-                            }
-                        }
-
-                        return {
-                            ...message.toJSON(),
-                            content: decryptedContent,
-                            attachment,
-                        };
-                    }))
+                    return { ...message.toJSON(), content: decryptedContent, attachment };
+                }))
                 : [];
 
             return {
                 ...chat.toJSON(),
                 chatName: chat.isGroup
                     ? chat.name
-                    : chat.users && chat.users.length > 0
-                        ? chat.users.find(u => u.id !== userId)?.realname || 'Unknown'
-                        : 'Unknown',
+                    : chat.users?.find(u => u.id !== userId)?.realname || 'Unknown',
                 users: (chat.users || []).map(user => ({
                     id: user.id,
                     username: user.username,
@@ -251,7 +188,96 @@ export const getChatsForUser = async (userId: number) => {
 };
 
 
+const handleFileAttachment = async (attachment: any) => {
+    const encryptedFilePath = attachment.filePath;
+    const metadataPath = `${encryptedFilePath}.meta`;
 
+    if (fs.existsSync(metadataPath)) {
+        const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+        const decryptedFilePath = encryptedFilePath.replace('.enc', '');
+
+        await decryptFile(encryptedFilePath);
+        return { fileName: metadata.originalFileName, filePath: decryptedFilePath };
+    }
+
+    return { fileName: attachment.fileName, filePath: attachment.filePath };
+};
+
+export const deleteChat = async (chatId: number, userId: number, userRole: string, isGroup: boolean) => {
+    try {
+        if (isGroup && userRole === 'member') {
+            await UserChats.destroy({ where: { userId, chatId } });
+            return;
+        }
+
+        const messages = await Message.findAll({ where: { chatId } });
+
+        await Promise.all(messages.map(async message => {
+            if (message.fileId) {
+                const fileRecord = await file.findByPk(message.fileId);
+                if (fileRecord) {
+                    fs.unlinkSync(fileRecord.filePath);
+                    await fileRecord.destroy();
+                }
+            }
+        }));
+
+        await Message.destroy({ where: { chatId } });
+        await file.destroy({ where: { chatId } });
+        await Chat.destroy({ where: { id: chatId } });
+    } catch (error) {
+        throw new Error('Не удалось удалить чат');
+    }
+};
+
+export const assignRole = async (chatId: number, userId: number, role: 'admin' | 'member') => {
+    const userChat = await UserChats.findOne({ where: { chatId, userId } });
+    if (!userChat) throw new Error('Пользователь не найден в чате');
+
+    userChat.role = role;
+    await userChat.save();
+};
+
+export const kickUserFromChat = async (chatId: number, userIdToKick: number, userId: number) => {
+    const chat = await Chat.findByPk(chatId);
+    if (!chat) throw new Error('Чат не найден');
+
+    const userRole = await getUserRoleInChat(userId, chatId);
+    if (userRole !== 'owner' && userRole !== 'admin') throw new Error('У вас нет прав для удаления участников');
+
+    await UserChats.destroy({ where: { userId: userIdToKick, chatId } });
+};
+
+export const getUserRoleInChat = async (userId: number, chatId: number): Promise<'owner' | 'admin' | 'member' | null> => {
+    const userChat = await UserChats.findOne({ where: { userId, chatId } });
+    return userChat?.role || null;
+};
+
+export const addUsersToGroupChat = async (chatId: number, newUserIds: number[], userId: number) => {
+    const chat = await Chat.findByPk(chatId);
+    if (!chat) throw new Error('Чат не найден');
+
+    const userRole = await getUserRoleInChat(userId, chatId);
+    if (userRole !== 'owner' && userRole !== 'admin') throw new Error('У вас нет прав для добавления участников');
+
+    const users = await findUsersByIds(newUserIds);
+    await chat.addUsers(users);
+    await Promise.all(users.map(user => upsertUserChat(chat.id, user.id, 'member')));
+};
+
+export const updateChatSettings = async (chatId: number, userId: number, groupName?: string, avatar?: string) => {
+    const chat = await Chat.findByPk(chatId);
+    if (!chat) throw new Error('Чат не найден');
+
+    const userRole = await getUserRoleInChat(userId, chatId);
+    if (userRole !== 'owner' && userRole !== 'admin') throw new Error('Недостаточно прав');
+
+    if (groupName) chat.name = groupName;
+    if (avatar) chat.avatar = avatar;
+
+    await chat.save();
+    return chat;
+};
 
 export const getChatWithMessages = async (chatId: number, userId: number) => {
     try {
@@ -296,140 +322,3 @@ export const getChatWithMessages = async (chatId: number, userId: number) => {
         throw new Error('Failed to fetch chat with messages');
     }
 };
-
-export const deleteChat = async (chatId: number, userId: number, userRole: string, isGroup: boolean) => {
-    try {
-        if (isGroup && userRole === 'member') {
-            await UserChats.destroy({
-                where: {
-                    userId,
-                    chatId,
-                },
-            });
-            return;
-        }
-
-        const messages = await Message.findAll({ where: { chatId } });
-
-        for (const message of messages) {
-            if (message.fileId) {
-                const fileRecord = await file.findOne({ where: { id: message.fileId } });
-                if (fileRecord) {
-                    fs.unlinkSync(fileRecord.filePath);
-                    await fileRecord.destroy();
-                }
-            }
-        }
-
-        await Message.destroy({ where: { chatId } });
-
-        await file.destroy({ where: { chatId } });
-
-        await Chat.destroy({ where: { id: chatId } });
-
-    } catch (error) {
-        throw new Error('Не удалось удалить чат');
-    }
-};
-
-
-export const assignRole = async (chatId: number, userId: number, role: 'admin' | 'member'): Promise<void> => {
-    const userChat = await UserChats.findOne({ where: { chatId, userId } });
-
-    if (!userChat) {
-        throw new Error('Пользователь не найден в чате');
-    }
-
-    userChat.role = role;
-    await userChat.save();
-};
-
-export const kickUserFromChat = async (chatId: number, userIdToKick: number, userId: number): Promise<void> => {
-    const chat = await Chat.findByPk(chatId);
-
-    if (!chat) {
-        throw new Error('Чат не найден');
-    }
-
-    const userRole = await getUserRoleInChat(userId, chatId);
-    if (userRole !== 'owner' && userRole !== 'admin') {
-        throw new Error('У вас нет прав для удаления участников из этого чата');
-    }
-
-    const userToKick = await User.findByPk(userIdToKick);
-    if (!userToKick) {
-        throw new Error('Пользователь не найден');
-    }
-
-    await UserChats.destroy({
-        where: { userId: userIdToKick, chatId }
-    });
-};
-
-export const getUserRoleInChat = async (userId: number, chatId: number): Promise<'owner' | 'admin' | 'member' | null> => {
-    const userChat = await UserChats.findOne({
-        where: { userId, chatId },
-    });
-
-    return userChat ? userChat.role : null;
-};
-
-export const addUsersToGroupChat = async (chatId: number, newUserIds: number[], userId: number): Promise<void> => {
-    const chat = await Chat.findByPk(chatId);
-
-    if (!chat) {
-        throw new Error('Чат не найден');
-    }
-
-    const userRole = await getUserRoleInChat(userId, chatId);
-    if (userRole !== 'owner' && userRole !== 'admin') {
-        throw new Error('У вас нет прав для добавления участников в этот чат');
-    }
-
-    const users = await User.findAll({ where: { id: newUserIds } });
-
-    if (users.length !== newUserIds.length) {
-        throw new Error('Некоторые пользователи не найдены');
-    }
-
-    await chat.addUsers(users);
-
-    for (const newUserId of newUserIds) {
-        const userChat = await UserChats.findOne({ where: { chatId, userId: newUserId } });
-        if (userChat) {
-            userChat.role = 'member';
-            await userChat.save();
-        }
-    }
-};
-
-export const updateChatSettings = async (
-    chatId: number,
-    userId: number,
-    groupName?: string,
-    avatar?: string
-) => {
-    const chat = await Chat.findByPk(chatId);
-    if (!chat) {
-        throw new Error('Chat not found');
-    }
-
-    const userRole = await getUserRoleInChat(userId, chatId);
-    if (userRole !== 'owner' && userRole !== 'admin') {
-        throw new Error('Insufficient permissions');
-    }
-
-    console.log('Current chat settings:', { name: chat.name, avatar: chat.avatar });
-
-    if (groupName) {
-        chat.name = groupName;
-    }
-
-    if (avatar) {
-        chat.avatar = avatar;
-    }
-
-    await chat.save();
-    return chat;
-};
-

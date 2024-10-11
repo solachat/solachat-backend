@@ -1,7 +1,6 @@
 import { File } from '../models/File';
-import { Express } from 'express';
 import { encryptFile, decryptFile } from '../encryption/fileEncryption';
-import fs from "fs"; // Убедись, что пути к файлам верные
+import fs from "fs";
 
 export const createFile = async (
     file: Express.Multer.File,

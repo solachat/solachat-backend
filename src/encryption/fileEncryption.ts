@@ -3,8 +3,7 @@ import crypto from 'crypto';
 import path from 'path';
 
 const algorithm = 'aes-256-gcm';
-// Генерация фиксированного 32-байтового ключа
-const key = Buffer.from('e03ed966249b166b574e5035fe1e22c6ee5ac44ec5bf250d85ff523ba073c93b', 'hex'); // Используйте фиксированный ключ
+const key = Buffer.from('e03ed966249b166b574e5035fe1e22c6ee5ac44ec5bf250d85ff523ba073c93b', 'hex');
 
 
 export const encryptFile = (filePath: string) => {

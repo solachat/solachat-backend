@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import User from '../models/User';
+import generateAvatar from "../utils/generatorAvatar";
 
 const AES_SECRET_KEY = process.env.AES_SECRET_KEY || 'default_secret_key_32_bytes_long';
 
@@ -28,17 +29,27 @@ export const createUser = async (
     password: string,
     publicKey: string | null,
     username: string,
-    realname: string
+    realname: string,
+    avatar: string | null
 ) => {
     const encryptedPassword = encryptPassword(password);
+
+    let avatarUrl = avatar;
+    if (!avatarUrl) {
+        avatarUrl = await generateAvatar(username);
+        console.log(`Аватарка сгенерирована для пользователя ${username}`);
+    }
+
     const user = await User.create({
         email,
         password: encryptedPassword,
         public_key: publicKey || null,
         username,
         realname,
+        avatar: avatarUrl,
         lastLogin: new Date(),
     });
+
     console.log('Creating user with public key:', publicKey);
     return user;
 };

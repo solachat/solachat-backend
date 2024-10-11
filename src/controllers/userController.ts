@@ -26,7 +26,7 @@ export const registerUser = async (req: Request, res: Response) => {
             }
         }
 
-        const user = await createUser(email, password, publicKey || null, username, realname);
+        const user = await createUser(email, password, publicKey || null, username, realname, null);
         logger.info(`User registered: ${user.email}, Wallet: ${publicKey || 'No public key provided'}`);
 
         const token = jwt.sign({ id: user.id, email: user.email, username: user.username }, secret, { expiresIn: '24h' });
@@ -80,32 +80,20 @@ export const getProfile = async (req: Request, res: Response) => {
 
         const isOwner = decoded.username === user.username;
 
+        // Деструктуризация для исключения пароля
+        const { password, ...safeUserData } = user.dataValues;
+
+        // Формирование responseData с необходимыми полями
         const responseData: any = {
-            ...user.dataValues,
+            ...safeUserData, // Передаем все поля кроме password
             avatar: user.avatar,
             isOwner,
             aboutMe: user.aboutMe,
         };
 
+        // Добавляем email только если пользователь разрешил или это владелец аккаунта
         if (user.shareEmail || isOwner) {
             responseData.email = user.email;
-        }
-
-        if (user.public_key) {
-            try {
-                const solanaBalance = await getSolanaBalance(user.public_key);
-                responseData.balance = solanaBalance;
-
-                const tokenBalance = await getTokenBalance(user.public_key);
-                responseData.tokenBalance = tokenBalance;
-            } catch (balanceError) {
-                const err = balanceError as Error; // Явно приводим к Error
-                logger.error(`Error fetching balance for public_key ${user.public_key}: ${err.message}`);
-                responseData.balanceError = 'Failed to fetch balances';
-            }
-        } else {
-            responseData.balance = 0;
-            responseData.tokenBalance = 0;
         }
 
         res.json(responseData);

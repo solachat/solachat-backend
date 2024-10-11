@@ -8,10 +8,8 @@ import {
 import { UserRequest } from '../types/types';
 import { wss } from '../app';
 import { decryptMessage, encryptMessage } from "../encryption/messageEncryption";
-import File from '../models/File';
 import User from "../models/User";
 import Chat from "../models/Chat";
-import {decryptFile, encryptFile} from "../encryption/fileEncryption";
 import {createFile} from "../services/fileService";
 
 const broadcastToClients = (type: string, payload: object) => {
@@ -32,14 +30,12 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
     try {
         const files = req.files as { [fieldname: string]: Express.Multer.File[] };
 
-        // Отправляем предварительный ответ клиенту
         res.status(202).json({ message: 'Message received, processing...' });
 
         process.nextTick(async () => {
             console.time('Message Processing');
             console.time('DB Query: User and Chat');
 
-            // Получение данных отправителя и чата
             const [sender, chat] = await Promise.all([
                 User.findByPk(req.user!.id, { attributes: ['id', 'username', 'avatar'] }),
                 Chat.findByPk(Number(chatId)),
@@ -53,22 +49,19 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
             if (file) {
                 console.time('File Encryption and Save');
 
-                // Вызов функции createFile без передачи лишних аргументов
                 const result = await createFile(file, req.user!.id, Number(chatId), true);
 
-                // Проверяем, является ли результат объектом с decryptedFilePath
                 if ('savedFile' in result) {
                     const { savedFile, decryptedFilePath: decryptedPath } = result;
                     fileId = savedFile.id;
-                    decryptedFilePath = decryptedPath; // Сохраняем путь к расшифрованному файлу
+                    decryptedFilePath = decryptedPath;
                 } else {
-                    fileId = result.id; // Если это просто файл
+                    fileId = result.id;
                 }
 
                 console.timeEnd('File Encryption and Save');
             }
 
-            // Сохраняем сообщение в базе данных
             console.time('DB Write: Message');
             const message = await createMessage(
                 req.user!.id,
@@ -79,14 +72,12 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
             );
             console.timeEnd('DB Write: Message');
 
-            // Расшифровываем сообщение перед отправкой (если есть контент)
             console.time('Decrypt Message');
             const decryptedMessageContent = content ? decryptMessage(JSON.parse(message.content)) : null;
             console.timeEnd('Decrypt Message');
 
 
             console.log(decryptedFilePath)
-            // Отправляем сообщение клиентам
             broadcastToClients('newMessage', {
                 message: {
                     ...message.toJSON(),

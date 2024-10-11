@@ -2,9 +2,7 @@ import multer, { FileFilterCallback } from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { UserRequest } from '../types/types';
-import { encryptFile } from '../encryption/fileEncryption'; // Импорт функции шифрования файла
 
-// Создание каталога, если он не существует
 const ensureDirectoryExists = (dir: string) => {
     if (!fs.existsSync(dir)) {
         console.log(`Каталог ${dir} не существует. Создаем...`);
@@ -12,7 +10,6 @@ const ensureDirectoryExists = (dir: string) => {
     }
 };
 
-// Получение директории в зависимости от типа файла
 const getDestination = (fileExtension: string) => {
     switch (fileExtension) {
         case 'jpeg':
@@ -45,11 +42,10 @@ const storage = multer.diskStorage({
         const fileExtension = path.extname(file.originalname).toLowerCase().slice(1);
         const destinationPath = getDestination(fileExtension);
 
-        ensureDirectoryExists(destinationPath); // Убедимся, что директория существует
+        ensureDirectoryExists(destinationPath);
         cb(null, destinationPath);
     },
     filename: (req, file, cb) => {
-        // Сохраняем файл с оригинальным именем
         cb(null, file.originalname);
     }
 });
