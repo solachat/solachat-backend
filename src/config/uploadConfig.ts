@@ -46,7 +46,8 @@ const storage = multer.diskStorage({
         cb(null, destinationPath);
     },
     filename: (req, file, cb) => {
-        cb(null, file.originalname);
+        const safeFileName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+        cb(null, safeFileName);
     }
 });
 

@@ -25,67 +25,62 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
     const { chatId } = req.params;
     const { content } = req.body;
     let fileId: number | null = null;
-    let decryptedFilePath: string | null = null;
+    let decryptedFilePath: string | null = null; // Для хранения пути к зашифрованному файлу
 
     try {
-        const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-
+        // Сразу возвращаем клиенту ответ о том, что сообщение принято
         res.status(202).json({ message: 'Message received, processing...' });
 
-        process.nextTick(async () => {
+        // Обработка в фоне
+        setImmediate(async () => {
             console.time('Message Processing');
-            console.time('DB Query: User and Chat');
 
+            // Параллельный запрос данных пользователя и чата
+            console.time('DB Query: User and Chat');
             const [sender, chat] = await Promise.all([
                 User.findByPk(req.user!.id, { attributes: ['id', 'username', 'avatar'] }),
                 Chat.findByPk(Number(chatId)),
             ]);
-
             console.timeEnd('DB Query: User and Chat');
 
-            if (!sender || !chat) return;
-
-            const file = files?.['file']?.[0];
-            if (file) {
+            // Если файл присутствует, обрабатываем его отдельно
+            const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+            if (files && files['file']) {
                 console.time('File Encryption and Save');
-
+                const file = files['file'][0];
                 const result = await createFile(file, req.user!.id, Number(chatId), true);
-
-                if ('savedFile' in result) {
-                    const { savedFile, decryptedFilePath: decryptedPath } = result;
-                    fileId = savedFile.id;
-                    decryptedFilePath = decryptedPath;
-                } else {
-                    fileId = result.id;
-                }
-
+                fileId = 'savedFile' in result ? result.savedFile.id : result.id;
+                decryptedFilePath = 'decryptedFilePath' in result ? result.decryptedFilePath : null; // Пусть к зашифрованному файлу
                 console.timeEnd('File Encryption and Save');
             }
 
+            // Создание сообщения
             console.time('DB Write: Message');
             const message = await createMessage(
                 req.user!.id,
                 Number(chatId),
                 content || '',
                 fileId,
-                sender
+                sender!
             );
             console.timeEnd('DB Write: Message');
 
+            // Дешифровка сообщения для отправки через WebSocket
             console.time('Decrypt Message');
             const decryptedMessageContent = content ? decryptMessage(JSON.parse(message.content)) : null;
             console.timeEnd('Decrypt Message');
 
-
-            console.log(decryptedFilePath)
+            // Отправка сообщения через WebSocket
+            console.time('Broadcast Message');
             broadcastToClients('newMessage', {
                 message: {
                     ...message.toJSON(),
                     content: decryptedMessageContent || null,
-                    attachment: file ? { fileName: file.filename, filePath: decryptedFilePath } : null,
-                    user: { id: sender.id, username: sender.username, avatar: sender.avatar },
+                    attachment: fileId ? { fileName: files['file'][0].originalname, filePath: decryptedFilePath } : null,
+                    user: { id: sender!.id, username: sender!.username, avatar: sender!.avatar },
                 }
             });
+            console.timeEnd('Broadcast Message');
 
             console.timeEnd('Message Processing');
         });
@@ -94,6 +89,7 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
         res.status(500).json({ message: 'Ошибка при создании сообщения.' });
     }
 };
+
 
 export const getMessagesController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
