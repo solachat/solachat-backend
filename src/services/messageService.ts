@@ -1,5 +1,4 @@
 import Message from '../models/Message';
-import Chat from '../models/Chat';
 import User from '../models/User';
 import File from '../models/File';
 import { encryptMessage } from "../encryption/messageEncryption";

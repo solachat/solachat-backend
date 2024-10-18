@@ -9,7 +9,6 @@ import fs from 'fs';
 import path from 'path';
 import {Op} from "sequelize";
 import {getDestination} from "../config/uploadConfig";
-import {getSolanaBalance, getTokenBalance} from "../services/solanaService";
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 

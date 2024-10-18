@@ -116,8 +116,7 @@ const broadcastMessage = async (chatId: number, message: Message) => {
         if (!chat || !chat.users) return;
 
         const messagePayload = createMessagePayload(message, sender);
-
-        broadcastToParticipants(chat.users, messagePayload);
+        broadcastToParticipants(chat.users, chatId, messagePayload); // Передаем chatId
     } catch (error) {
         console.error('Error broadcasting message:', error);
     }
@@ -141,11 +140,17 @@ const createMessagePayload = (message: Message, sender: User) => {
     });
 };
 
-const broadcastToParticipants = (participants: User[], payload: string) => {
+const broadcastToParticipants = (participants: User[], chatId: number, payload: string) => {
     const participantIds = participants.map(user => user.id);
     connectedUsers.forEach(({ ws, userId }) => {
         if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
-            ws.send(payload);
+            ws.send(JSON.stringify({
+                type: 'newMessage',
+                message: {
+                    chatId,
+                    ...JSON.parse(payload)
+                }
+            }));
         }
     });
 };
