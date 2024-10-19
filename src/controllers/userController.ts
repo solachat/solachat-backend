@@ -243,7 +243,7 @@ export const searchUser = async (req: Request, res: Response) => {
                     { realname: { [Op.iLike]: `%${searchTerm}%` } },
                 ],
             },
-            attributes: ['id', 'realname', 'username', 'avatar'],
+            attributes: ['id', 'realname', 'username', 'avatar', 'online'],
         });
 
         res.status(200).json(users);

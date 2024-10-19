@@ -2,14 +2,6 @@ import User from '../models/User';
 import generateAvatar from "../utils/generatorAvatar";
 import { comparePassword, hashPassword } from '../encryption/bcryptEncryption';
 
-const AES_SECRET_KEY = process.env.AES_SECRET_KEY || 'default_secret_key_32_bytes_long';
-
-console.log('AES_SECRET_KEY:', AES_SECRET_KEY, 'Length:', AES_SECRET_KEY.length);
-
-if (AES_SECRET_KEY.length !== 32) {
-    throw new Error('Invalid AES key length. The key must be exactly 32 bytes long.');
-}
-
 export const createUser = async (
     email: string,
     password: string,

@@ -2,7 +2,7 @@ import WebSocket from 'ws';
 import jwt from 'jsonwebtoken';
 import User from '../models/User';
 import Chat from '../models/Chat';
-import { getUserById } from '../services/userService';
+import { getUserById, updateUserStatus } from '../services/userService';
 import { createMessage } from '../services/messageService';
 import { decryptMessage } from '../encryption/messageEncryption';
 import { createPrivateChat, deleteChat } from '../services/chatService';
@@ -24,6 +24,7 @@ export const initWebSocketServer = (server: any) => {
 
         if (!token) {
             ws.close(4001, 'No token provided');
+            console.error('WebSocket connection closed: No token provided.');
             return;
         }
 
@@ -34,34 +35,26 @@ export const initWebSocketServer = (server: any) => {
             const user = await getUserById(userId);
             if (!user) {
                 ws.close(4002, 'User not found');
+                console.error('WebSocket connection closed: User not found.');
                 return;
             }
 
+            await updateUserStatus(userId, true);
+
+            // Удаляем предыдущее соединение пользователя, если оно есть
+            removeUserConnection(userId);
+
             connectedUsers.push({ ws, userId });
-            console.log(`User ${user.username} is now online`);
+            console.log(`User ${user.username} подключен. Всего пользователей: ${connectedUsers.length}`);
 
-            ws.on('message', async (message: string) => {
-                const parsedMessage = JSON.parse(message);
-
-                // Обработка сообщений
-                if (parsedMessage.type === 'newMessage') {
-                    await handleMessage(userId, parsedMessage);
-                }
-                // Обработка создания чата
-                else if (parsedMessage.type === 'createChat') {
-                    await handleChatCreation(userId, parsedMessage);
-                }
-                // Обработка удаления чата
-                else if (parsedMessage.type === 'deleteChat') {
-                    await handleChatDeletion(userId, parsedMessage.chatId);
-                }
-            });
-
-            ws.on('close', (code, reason) => {
+            // Обработка закрытия соединения
+            ws.on('close', async (code, reason) => {
                 console.log(`User ${user.username} disconnected with code ${code}, reason: ${reason}`);
+                await updateUserStatus(userId, false);
                 removeUserConnection(userId);
             });
 
+            // Обработка ошибок
             ws.on('error', (error) => {
                 console.error(`WebSocket error for user ${user.username}:`, error);
             });
@@ -73,7 +66,6 @@ export const initWebSocketServer = (server: any) => {
     });
 };
 
-// Обработка создания чата
 const handleChatCreation = async (userId: number, parsedMessage: any) => {
     const { user1Id, user2Id } = parsedMessage;
 
@@ -104,7 +96,6 @@ const getChatAndUsers = async (chatId: number) => {
     return chat;
 };
 
-// Обработка сообщений
 const handleMessage = async (userId: number, parsedMessage: any): Promise<void> => {
     try {
         const { chatId, content } = parsedMessage;
@@ -127,17 +118,14 @@ const createAndBroadcastMessage = async (chatId: number, userId: number, content
     return message;
 };
 
-// Функции для уведомления о создании/удалении чата
 const broadcastChatCreation = async (chat: Chat) => {
     const participants = await getChatParticipants(chat.id);
 
-    // Проверяем наличие участников
     if (!participants || !participants.users || participants.users.length === 0) {
         console.error('No participants found for this chat');
         return;
     }
 
-    // Генерируем полезную нагрузку
     const chatPayload = JSON.stringify({
         type: 'chatCreated',
         chatId: chat.id,
@@ -145,14 +133,12 @@ const broadcastChatCreation = async (chat: Chat) => {
         users: participants.users.map(user => ({
             id: user.id,
             username: user.username,
-            avatar: user.avatar || null  // Обработка возможного отсутствия аватара
+            avatar: user.avatar || null
         }))
     });
 
-    // Оповещаем участников чата
     broadcastToParticipants(participants.users, chat.id, chatPayload, 'chatCreated');
 };
-
 
 const broadcastChatDeletion = async (chatId: number) => {
     const participants = await getChatParticipants(chatId);
@@ -166,7 +152,6 @@ const broadcastChatDeletion = async (chatId: number) => {
     broadcastToParticipants(participants.users, chatId, payload, 'chatDeleted');
 };
 
-// Отправка сообщений участникам чата
 const broadcastMessage = async (chatId: number, message: any) => {
     const sender = await getUserById(message.userId);
     if (!sender) return;
@@ -194,7 +179,6 @@ const createMessagePayload = (message: any, sender: User) => {
     });
 };
 
-// Универсальная функция для рассылки данных участникам
 const broadcastToParticipants = (participants: User[], chatId: number, payload: string, type: string) => {
     const participantIds = participants.map(user => user.id);
     connectedUsers.forEach(({ ws, userId }) => {

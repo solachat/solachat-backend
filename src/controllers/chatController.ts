@@ -62,7 +62,6 @@ export const createPrivateChatController = async (req: Request, res: Response) =
     }
 };
 
-// Создание группового чата
 export const createGroupChatController = async (req: Request, res: Response) => {
     const { groupName, selectedUsers } = req.body;
 
@@ -86,7 +85,6 @@ export const createGroupChatController = async (req: Request, res: Response) => 
 
         const chat = await createGroupChat(userIds, groupName, creatorId, avatarUrl);
 
-        // Уведомляем через WebSocket всех участников чата
         broadcastToClients('groupChatCreated', { chat });
 
         res.status(201).json(chat);
@@ -96,7 +94,6 @@ export const createGroupChatController = async (req: Request, res: Response) => 
     }
 };
 
-// Получение чата по ID
 export const getChatController = async (req: Request, res: Response) => {
     const chatId = Number(req.params.chatId);
     if (isNaN(chatId)) {
@@ -112,7 +109,6 @@ export const getChatController = async (req: Request, res: Response) => {
     }
 };
 
-// Получение всех чатов пользователя
 export const getChatsController = async (req: UserRequest, res: Response) => {
     const userId = req.user?.id;
 
@@ -129,7 +125,6 @@ export const getChatsController = async (req: UserRequest, res: Response) => {
     }
 };
 
-// Получение чата с сообщениями
 export const getChatWithMessagesController = async (req: UserRequest, res: Response) => {
     const chatId = Number(req.params.chatId);
     const userId = req.user?.id;
@@ -151,7 +146,6 @@ export const getChatWithMessagesController = async (req: UserRequest, res: Respo
     }
 };
 
-// Удаление чата
 export const deleteChatController = async (req: Request, res: Response) => {
     const chatId = Number(req.params.chatId);
     const userId = req.user?.id;
@@ -177,7 +171,6 @@ export const deleteChatController = async (req: Request, res: Response) => {
 
         await deleteChat(chatId, userId, userChatRecord.role, chat.isGroup);
 
-        // Уведомляем всех участников через WebSocket
         broadcastToClients('chatDeleted', { chatId });
 
         res.status(200).json({ message: 'Чат успешно удалён.' });
@@ -187,7 +180,6 @@ export const deleteChatController = async (req: Request, res: Response) => {
     }
 };
 
-// Добавление пользователей в чат
 export const addUsersToChatController = async (req: Request, res: Response) => {
     const { chatId, newUserIds } = req.body;
     const userId = req.user?.id;
@@ -199,7 +191,6 @@ export const addUsersToChatController = async (req: Request, res: Response) => {
     try {
         await addUsersToGroupChat(chatId, newUserIds, userId!);
 
-        // Уведомляем всех участников через WebSocket
         broadcastToClients('usersAddedToChat', { chatId, newUserIds });
 
         res.status(200).json({ message: 'Пользователи успешно добавлены в чат.' });
@@ -209,7 +200,6 @@ export const addUsersToChatController = async (req: Request, res: Response) => {
     }
 };
 
-// Удаление пользователя из чата
 export const kickUserController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
     const { userIdToKick } = req.body;
@@ -242,7 +232,6 @@ export const kickUserController = async (req: Request, res: Response) => {
     }
 };
 
-// Назначение роли пользователю
 export const assignRoleController = async (req: Request, res: Response) => {
     const { userIdToAssign, role } = req.body;
     const { chatId } = req.params;
@@ -250,7 +239,6 @@ export const assignRoleController = async (req: Request, res: Response) => {
     try {
         await assignRole(Number(chatId), userIdToAssign, role);
 
-        // Уведомляем всех участников через WebSocket
         broadcastToClients('roleAssigned', { chatId, userIdToAssign, role });
 
         res.status(200).json({ message: 'Роль успешно назначена.' });
@@ -260,7 +248,6 @@ export const assignRoleController = async (req: Request, res: Response) => {
     }
 };
 
-// Обновление настроек чата
 export const updateChatSettingsController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
     const { groupName } = req.body;
