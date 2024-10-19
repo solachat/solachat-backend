@@ -1,7 +1,7 @@
-import WebSocket from 'ws';
-import { connectedUsers, WebSocketUser } from '../websocket/index';
+import { connectedUsers, WebSocketUser } from '../websocket';
 import Call from '../models/Call';
 
+// Initiating an individual call
 export const initiateCall = async (fromUserId: number, toUserId: number) => {
     const call = await Call.create({
         fromUserId,
@@ -9,29 +9,10 @@ export const initiateCall = async (fromUserId: number, toUserId: number) => {
         isGroupCall: false,
         status: 'initiated',
     });
-
-    const targetUser = connectedUsers.find((user: WebSocketUser) => user.userId === toUserId);
-    if (!targetUser) {
-        console.error(`User ${toUserId} is not found in connectedUsers.`);
-        return false;
-    }
-
-    if (targetUser.ws.readyState !== WebSocket.OPEN) {
-        console.error(`WebSocket for user ${toUserId} is not open. State: ${targetUser.ws.readyState}`);
-        return false;
-    }
-
-    const message = JSON.stringify({
-        type: 'callOffer',
-        fromUserId,
-        callId: call.id,
-    });
-    targetUser.ws.send(message);
-    console.log(`Call offer sent to user ${toUserId}`);
-
-    return true;
+    return call;
 };
 
+// Answering an individual call
 export const answerCall = async (fromUserId: number, toUserId: number) => {
     const callerUser = connectedUsers.find((user: WebSocketUser) => user.userId === fromUserId);
 
@@ -54,23 +35,15 @@ export const answerCall = async (fromUserId: number, toUserId: number) => {
     }
 };
 
+// Rejecting an individual call
 export const rejectCall = async (fromUserId: number, toUserId: number) => {
-    const callerUser = connectedUsers.find((user: WebSocketUser) => user.userId === fromUserId);
-
-    if (callerUser && callerUser.ws.readyState === WebSocket.OPEN) {
-        const message = JSON.stringify({
-            type: 'callRejected',
-            toUserId,
-        });
-        callerUser.ws.send(message);
-
-        await Call.update(
-            { status: 'rejected' },
-            { where: { fromUserId, toUserId, status: 'initiated' } }
-        );
-    }
+    await Call.update(
+        { status: 'rejected' },
+        { where: { fromUserId, toUserId, status: 'initiated' } }
+    );
 };
 
+// Initiating a group call
 export const initiateGroupCall = async (fromUserId: number, participantUserIds: number[]) => {
     const call = await Call.create({
         fromUserId,
@@ -79,24 +52,10 @@ export const initiateGroupCall = async (fromUserId: number, participantUserIds: 
         status: 'initiated',
     });
 
-    participantUserIds.forEach(toUserId => {
-        const targetUser = connectedUsers.find((user: WebSocketUser) => user.userId === toUserId);
-
-        if (targetUser && targetUser.ws.readyState === WebSocket.OPEN) {
-            const message = JSON.stringify({
-                type: 'groupCallOffer',
-                fromUserId,
-                callId: call.id,
-            });
-            targetUser.ws.send(message);
-        } else {
-            console.error(`User ${toUserId} is not available for group call`);
-        }
-    });
-
-    return true;
+    return call;
 };
 
+// Answering a group call
 export const answerGroupCall = async (fromUserId: number, groupId: number, toUserId: number) => {
     const callerUser = connectedUsers.find((user: WebSocketUser) => user.userId === fromUserId);
 
@@ -120,19 +79,10 @@ export const answerGroupCall = async (fromUserId: number, groupId: number, toUse
     }
 };
 
+// Rejecting a group call
 export const rejectGroupCall = async (fromUserId: number, toUserId: number) => {
-    const callerUser = connectedUsers.find((user: WebSocketUser) => user.userId === fromUserId);
-
-    if (callerUser && callerUser.ws.readyState === WebSocket.OPEN) {
-        const message = JSON.stringify({
-            type: 'groupCallRejected',
-            toUserId,
-        });
-        callerUser.ws.send(message);
-
-        await Call.update(
-            { status: 'rejected' },
-            { where: { fromUserId, toUserId, status: 'initiated' } }
-        );
-    }
+    await Call.update(
+        { status: 'rejected' },
+        { where: { fromUserId, toUserId, status: 'initiated' } }
+    );
 };

@@ -25,7 +25,9 @@ const server = http.createServer(app);
 export const wss = new WebSocket.Server({ noServer: true });
 
 server.on('upgrade', (request, socket: Socket, head) => {
+    console.log('Upgrade request received');
     wss.handleUpgrade(request, socket, head, (ws) => {
+        console.log('WebSocket connection established');
         wss.emit('connection', ws, request);
     });
 });

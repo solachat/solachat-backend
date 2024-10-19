@@ -1,12 +1,30 @@
 import { Request, Response } from 'express';
 import { initiateCall, answerCall, rejectCall, initiateGroupCall, answerGroupCall, rejectGroupCall } from '../services/callService';
+import { wss } from '../app';
 
+const broadcastToClients = (type: string, payload: object) => {
+    const messagePayload = JSON.stringify({ type, ...payload });
+    wss.clients.forEach((client: any) => {
+        if (client.readyState === client.OPEN) {
+            client.send(messagePayload);
+        }
+    });
+};
+
+
+// Individual call handlers
 export const initiateCallHandler = async (req: Request, res: Response) => {
     const { fromUserId, toUserId } = req.body;
 
     try {
-        const callInitiated = await initiateCall(fromUserId, toUserId);
-        if (callInitiated) {
+        const call = await initiateCall(fromUserId, toUserId);
+        if (call) {
+            broadcastToClients('callOffer', {
+                fromUserId,
+                toUserId,
+                callId: call.id,
+                status: call.status,
+            });
             res.status(200).json({ message: 'Call initiated' });
         } else {
             res.status(400).json({ message: 'Failed to initiate call' });
@@ -23,6 +41,11 @@ export const answerCallHandler = async (req: Request, res: Response) => {
     try {
         const callAnswered = await answerCall(fromUserId, toUserId);
         if (callAnswered) {
+            broadcastToClients('callAccepted', {
+                fromUserId,
+                toUserId,
+                status: 'accepted',
+            });
             res.status(200).json({ message: 'Call answered' });
         } else {
             res.status(400).json({ message: 'Failed to answer call' });
@@ -38,6 +61,11 @@ export const rejectCallHandler = async (req: Request, res: Response) => {
 
     try {
         await rejectCall(fromUserId, toUserId);
+        broadcastToClients('callRejected', {
+            fromUserId,
+            toUserId,
+            status: 'rejected',
+        });
         res.status(200).json({ message: 'Call rejected' });
     } catch (error) {
         console.error('Error rejecting call:', error);
@@ -45,12 +73,19 @@ export const rejectCallHandler = async (req: Request, res: Response) => {
     }
 };
 
+// Group call handlers
 export const initiateGroupCallHandler = async (req: Request, res: Response) => {
     const { fromUserId, participantUserIds } = req.body;
 
     try {
-        const callInitiated = await initiateGroupCall(fromUserId, participantUserIds);
-        if (callInitiated) {
+        const call = await initiateGroupCall(fromUserId, participantUserIds);
+        if (call) {
+            broadcastToClients('groupCallOffer', {
+                fromUserId,
+                participantUserIds,
+                callId: call.id,
+                status: 'initiated',
+            });
             res.status(200).json({ message: 'Group call initiated' });
         } else {
             res.status(400).json({ message: 'Failed to initiate group call' });
@@ -67,6 +102,12 @@ export const answerGroupCallHandler = async (req: Request, res: Response) => {
     try {
         const groupCallAnswered = await answerGroupCall(fromUserId, groupId, toUserId);
         if (groupCallAnswered) {
+            broadcastToClients('groupCallAccepted', {
+                fromUserId,
+                toUserId,
+                groupId,
+                status: 'accepted',
+            });
             res.status(200).json({ message: 'Group call answered' });
         } else {
             res.status(400).json({ message: 'Failed to answer group call' });
@@ -82,6 +123,11 @@ export const rejectGroupCallHandler = async (req: Request, res: Response) => {
 
     try {
         await rejectGroupCall(fromUserId, toUserId);
+        broadcastToClients('groupCallRejected', {
+            fromUserId,
+            toUserId,
+            status: 'rejected',
+        });
         res.status(200).json({ message: 'Group call rejected' });
     } catch (error) {
         console.error('Error rejecting group call:', error);
