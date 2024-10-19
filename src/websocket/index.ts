@@ -1,13 +1,11 @@
 import WebSocket from 'ws';
 import jwt from 'jsonwebtoken';
 import User from '../models/User';
-import { getUserById } from '../services/userService';
-import Message from '../models/Message';
-import { createMessage } from '../services/messageService';
 import Chat from '../models/Chat';
+import { getUserById } from '../services/userService';
+import { createMessage } from '../services/messageService';
 import { decryptMessage } from '../encryption/messageEncryption';
-import { initiateCall, answerCall, rejectCall, initiateGroupCall, answerGroupCall, rejectGroupCall } from '../services/callService';
-
+import { createPrivateChat, deleteChat } from '../services/chatService';
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
@@ -45,22 +43,21 @@ export const initWebSocketServer = (server: any) => {
             ws.on('message', async (message: string) => {
                 const parsedMessage = JSON.parse(message);
 
-                if (parsedMessage.type === 'callOffer') {
-                    await initiateCall(userId, parsedMessage.toUserId);
-                } else if (parsedMessage.type === 'groupCallOffer') {
-                    await initiateGroupCall(userId, parsedMessage.participantUserIds);
-                } else if (parsedMessage.type === 'callAnswer') {
-                    await answerCall(parsedMessage.fromUserId, userId);
-                } else if (parsedMessage.type === 'groupCallAnswer') {
-                    await answerGroupCall(parsedMessage.fromUserId, parsedMessage.groupId, userId);
-                } else if (parsedMessage.type === 'callReject') {
-                    await rejectCall(parsedMessage.fromUserId, userId);
-                } else if (parsedMessage.type === 'groupCallReject') {
-                    await rejectGroupCall(parsedMessage.fromUserId, userId);
+                // Обработка сообщений
+                if (parsedMessage.type === 'newMessage') {
+                    await handleMessage(userId, parsedMessage);
+                }
+                // Обработка создания чата
+                else if (parsedMessage.type === 'createChat') {
+                    await handleChatCreation(userId, parsedMessage);
+                }
+                // Обработка удаления чата
+                else if (parsedMessage.type === 'deleteChat') {
+                    await handleChatDeletion(userId, parsedMessage.chatId);
                 }
             });
 
-            ws.on('close', async (code, reason) => {
+            ws.on('close', (code, reason) => {
                 console.log(`User ${user.username} disconnected with code ${code}, reason: ${reason}`);
                 removeUserConnection(userId);
             });
@@ -76,9 +73,40 @@ export const initWebSocketServer = (server: any) => {
     });
 };
 
+// Обработка создания чата
+const handleChatCreation = async (userId: number, parsedMessage: any) => {
+    const { user1Id, user2Id } = parsedMessage;
+
+    const chat = await createPrivateChat(user1Id, user2Id);
+    await broadcastChatCreation(chat);
+};
+
+const handleChatDeletion = async (userId: number, chatId: number) => {
+    const chat = await Chat.findByPk(chatId);
+    if (chat) {
+        await deleteChat(chatId, userId, 'admin', chat.isGroup);
+        await broadcastChatDeletion(chatId);
+    }
+};
+
+const getChatAndUsers = async (chatId: number) => {
+    console.time('Database Query (Chat and Users)');
+    const chat = await Chat.findByPk(chatId, {
+        include: [{ model: User, as: 'users', attributes: ['id', 'username', 'avatar'] }]
+    });
+
+    if (!chat || !chat.users) {
+        console.error('Chat or users not found');
+        return null;
+    }
+
+    console.timeEnd('Database Query (Chat and Users)');
+    return chat;
+};
+
+// Обработка сообщений
 const handleMessage = async (userId: number, parsedMessage: any): Promise<void> => {
     try {
-        console.time('Message Handling');
         const { chatId, content } = parsedMessage;
 
         const chat = await getChatAndUsers(chatId);
@@ -88,41 +116,69 @@ const handleMessage = async (userId: number, parsedMessage: any): Promise<void> 
         if (!sender) return;
 
         const message = await createAndBroadcastMessage(chatId, userId, content, sender);
-
-        console.timeEnd('Message Handling');
     } catch (error) {
         console.error(`Error handling message from user ${userId}:`, error);
     }
 };
 
 const createAndBroadcastMessage = async (chatId: number, userId: number, content: string, sender: User) => {
-    console.time('Message Encryption');
     const message = await createMessage(userId, chatId, content, null, sender);
-    console.timeEnd('Message Encryption');
-
-    console.time('Message Broadcasting');
     await broadcastMessage(chatId, message);
-    console.timeEnd('Message Broadcasting');
-
     return message;
 };
 
-const broadcastMessage = async (chatId: number, message: Message) => {
-    try {
-        const sender = await getUserById(message.userId);
-        if (!sender) return;
+// Функции для уведомления о создании/удалении чата
+const broadcastChatCreation = async (chat: Chat) => {
+    const participants = await getChatParticipants(chat.id);
 
-        const chat = await getChatParticipants(chatId);
-        if (!chat || !chat.users) return;
-
-        const messagePayload = createMessagePayload(message, sender);
-        broadcastToParticipants(chat.users, chatId, messagePayload); // Передаем chatId
-    } catch (error) {
-        console.error('Error broadcasting message:', error);
+    // Проверяем наличие участников
+    if (!participants || !participants.users || participants.users.length === 0) {
+        console.error('No participants found for this chat');
+        return;
     }
+
+    // Генерируем полезную нагрузку
+    const chatPayload = JSON.stringify({
+        type: 'chatCreated',
+        chatId: chat.id,
+        name: chat.name,
+        users: participants.users.map(user => ({
+            id: user.id,
+            username: user.username,
+            avatar: user.avatar || null  // Обработка возможного отсутствия аватара
+        }))
+    });
+
+    // Оповещаем участников чата
+    broadcastToParticipants(participants.users, chat.id, chatPayload, 'chatCreated');
 };
 
-const createMessagePayload = (message: Message, sender: User) => {
+
+const broadcastChatDeletion = async (chatId: number) => {
+    const participants = await getChatParticipants(chatId);
+    if (!participants || !participants.users) return;
+
+    const payload = JSON.stringify({
+        type: 'chatDeleted',
+        chatId
+    });
+
+    broadcastToParticipants(participants.users, chatId, payload, 'chatDeleted');
+};
+
+// Отправка сообщений участникам чата
+const broadcastMessage = async (chatId: number, message: any) => {
+    const sender = await getUserById(message.userId);
+    if (!sender) return;
+
+    const chat = await getChatParticipants(chatId);
+    if (!chat || !chat.users) return;
+
+    const messagePayload = createMessagePayload(message, sender);
+    broadcastToParticipants(chat.users, chatId, messagePayload, 'newMessage');
+};
+
+const createMessagePayload = (message: any, sender: User) => {
     return JSON.stringify({
         type: 'newMessage',
         message: {
@@ -132,40 +188,28 @@ const createMessagePayload = (message: Message, sender: User) => {
             sender: {
                 id: sender.id,
                 username: sender.username,
-                realname: sender.realname,
-                avatar: sender.avatar,
-                online: sender.online,
+                avatar: sender.avatar
             }
         }
     });
 };
 
-const broadcastToParticipants = (participants: User[], chatId: number, payload: string) => {
+// Универсальная функция для рассылки данных участникам
+const broadcastToParticipants = (participants: User[], chatId: number, payload: string, type: string) => {
     const participantIds = participants.map(user => user.id);
     connectedUsers.forEach(({ ws, userId }) => {
         if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
             ws.send(JSON.stringify({
-                type: 'newMessage',
-                message: {
-                    chatId,
-                    ...JSON.parse(payload)
-                }
+                type,
+                chatId,
+                ...JSON.parse(payload)
             }));
         }
     });
 };
 
-const getChatAndUsers = async (chatId: number) => {
-    console.time('Database Query (Chat and Users)');
-    const chat = await Chat.findByPk(chatId, {
-        include: [{ model: User, as: 'users', attributes: ['id', 'username', 'avatar'] }],
-    });
-    console.timeEnd('Database Query (Chat and Users)');
-    return chat;
-};
-
 const getChatParticipants = async (chatId: number) => {
-    return await Chat.findByPk(chatId, { include: [{ model: User, attributes: ['id'] }] });
+    return await Chat.findByPk(chatId, { include: [{ model: User, attributes: ['id', 'username', 'avatar'] }] });
 };
 
 const isUserInChat = (users: User[], userId: number) => {
@@ -175,21 +219,4 @@ const isUserInChat = (users: User[], userId: number) => {
 const removeUserConnection = (userId: number) => {
     const index = connectedUsers.findIndex(user => user.userId === userId);
     if (index !== -1) connectedUsers.splice(index, 1);
-};
-
-const updateUserStatus = async (userId: number, isOnline: boolean) => {
-    try {
-        const user = await User.findByPk(userId);
-        if (!user) return;
-
-        if (user.online !== isOnline) {
-            user.online = isOnline;
-            await user.save();
-            console.log(`User ${user.username} status updated to ${isOnline ? 'online' : 'offline'}`);
-        } else {
-            console.log(`User ${user.username} is already ${isOnline ? 'online' : 'offline'}. No update needed.`);
-        }
-    } catch (error) {
-        console.error('Error updating user status:', error);
-    }
 };
