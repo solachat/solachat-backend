@@ -12,20 +12,20 @@ export const initiateCall = async (fromUserId: number, toUserId: number) => {
     return call;
 };
 
-// Answering an individual call
-export const answerCall = async (fromUserId: number, toUserId: number) => {
+export const answerCall = async (fromUserId: number, toUserId: number, callId: number) => {
     const callerUser = connectedUsers.find((user: WebSocketUser) => user.userId === fromUserId);
 
     if (callerUser && callerUser.ws.readyState === WebSocket.OPEN) {
         const message = JSON.stringify({
             type: 'callAccepted',
             toUserId,
+            callId, // Добавляем callId в сообщение
         });
         callerUser.ws.send(message);
 
         await Call.update(
             { status: 'accepted' },
-            { where: { fromUserId, toUserId, status: 'initiated' } }
+            { where: { id: callId, fromUserId, toUserId, status: 'initiated' } }
         );
 
         return true;
@@ -34,6 +34,7 @@ export const answerCall = async (fromUserId: number, toUserId: number) => {
         return false;
     }
 };
+
 
 // Rejecting an individual call
 export const rejectCall = async (fromUserId: number, toUserId: number) => {

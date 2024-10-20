@@ -50,7 +50,7 @@ export const initWebSocketServer = (server: any) => {
                 } else if (parsedMessage.type === 'groupCallOffer') {
                     await initiateGroupCall(userId, parsedMessage.participantUserIds);
                 } else if (parsedMessage.type === 'callAnswer') {
-                    await answerCall(parsedMessage.fromUserId, userId);
+                    await answerCall(parsedMessage.fromUserId, userId, parsedMessage.callId);
                 } else if (parsedMessage.type === 'groupCallAnswer') {
                     await answerGroupCall(parsedMessage.fromUserId, parsedMessage.groupId, userId);
                 } else if (parsedMessage.type === 'callReject') {

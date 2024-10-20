@@ -47,14 +47,15 @@ export const initiateCallHandler = async (req: Request, res: Response) => {
 };
 
 export const answerCallHandler = async (req: Request, res: Response) => {
-    const { fromUserId, toUserId } = req.body;
+    const { fromUserId, toUserId, callId } = req.body;
 
     try {
-        const callAnswered = await answerCall(fromUserId, toUserId);
+        const callAnswered = await answerCall(fromUserId, toUserId, callId);
         if (callAnswered) {
             broadcastToClients('callAccepted', {
                 fromUserId,
                 toUserId,
+                callId,
                 status: 'accepted',
             });
             res.status(200).json({ message: 'Call answered' });
@@ -66,6 +67,7 @@ export const answerCallHandler = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+
 
 export const rejectCallHandler = async (req: Request, res: Response) => {
     const { fromUserId, toUserId } = req.body;
