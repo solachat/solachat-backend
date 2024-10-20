@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { initiateCall, answerCall, rejectCall, initiateGroupCall, answerGroupCall, rejectGroupCall } from '../services/callService';
 import { wss } from '../app';
+import { getUserById } from '../services/userService';
+
 
 const broadcastToClients = (type: string, payload: object) => {
     const messagePayload = JSON.stringify({ type, ...payload });
@@ -11,17 +13,26 @@ const broadcastToClients = (type: string, payload: object) => {
     });
 };
 
-
-// Individual call handlers
 export const initiateCallHandler = async (req: Request, res: Response) => {
     const { fromUserId, toUserId } = req.body;
 
     try {
+        const fromUser = await getUserById(fromUserId);
+        const toUser = await getUserById(toUserId);
+
+        if (!fromUser || !toUser) {
+            return res.status(404).json({ message: 'One or both users not found' });
+        }
+
         const call = await initiateCall(fromUserId, toUserId);
         if (call) {
             broadcastToClients('callOffer', {
                 fromUserId,
+                fromUsername: fromUser.username,
+                fromAvatar: fromUser.avatar,
                 toUserId,
+                toUsername: toUser.username,
+                toAvatar: toUser.avatar,
                 callId: call.id,
                 status: call.status,
             });
@@ -73,7 +84,6 @@ export const rejectCallHandler = async (req: Request, res: Response) => {
     }
 };
 
-// Group call handlers
 export const initiateGroupCallHandler = async (req: Request, res: Response) => {
     const { fromUserId, participantUserIds } = req.body;
 
