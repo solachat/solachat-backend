@@ -17,7 +17,7 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User';
 import UserChats from '../models/UserChats';
 import Chat from '../models/Chat';
-import {wss} from "../app";
+import {wss} from "../websocket";
 
 const broadcastToClients = (type: string, payload: object) => {
     const messagePayload = JSON.stringify({ type, ...payload });

@@ -1,4 +1,5 @@
 import { connectedUsers, WebSocketUser } from '../websocket';
+import WebSocket from 'ws';
 import Call from '../models/Call';
 
 // Initiating an individual call
@@ -12,34 +13,51 @@ export const initiateCall = async (fromUserId: number, toUserId: number) => {
     return call;
 };
 
-export const answerCall = async (fromUserId: number, toUserId: number, callId: number) => {
-    const callerUser = connectedUsers.find((user: WebSocketUser) => user.userId === fromUserId);
+export const answerCall = async (fromUserId: number, toUserId: number, callId: number, offer: any) => {
+    const callerUser = connectedUsers.find((user) => user.userId === fromUserId);
+    const receiverUser = connectedUsers.find((user) => user.userId === toUserId);
 
-    if (!callerUser) {
-        console.error(`Caller user with ID ${fromUserId} is not connected.`);
-        return false;  // Возвращаем false, если вызывающий пользователь не найден
-    }
-
-    if (callerUser.ws.readyState !== WebSocket.OPEN) {
-        console.error('Caller user WebSocket connection is not open');
+    if (!callerUser || callerUser.ws.readyState !== WebSocket.OPEN) {
+        console.error(`Caller user with ID ${fromUserId} is not connected or WebSocket is not open.`);
         return false;
     }
 
-    const message = JSON.stringify({
-        type: 'callAccepted',
-        toUserId,
-        callId, // Добавляем callId в сообщение
-    });
-    callerUser.ws.send(message);
+    if (!receiverUser || receiverUser.ws.readyState !== WebSocket.OPEN) {
+        console.error(`Receiver user with ID ${toUserId} is not connected or WebSocket is not open.`);
+        return false;
+    }
 
-    await Call.update(
-        { status: 'accepted' },
-        { where: { id: callId, fromUserId, toUserId, status: 'initiated' } }
-    );
+    try {
+        // Обновляем статус звонка
+        await Call.update(
+            { status: 'accepted' },
+            { where: { id: callId, fromUserId, toUserId, status: 'initiated' } }
+        );
 
-    return true;
+        // Сообщаем инициатору, что звонок принят
+        const messageToCaller = JSON.stringify({
+            type: 'callAccepted',
+            fromUserId,
+            toUserId,
+            callId,
+        });
+        callerUser.ws.send(messageToCaller);
+
+        // Пересылаем offer на принимающую сторону
+        const offerMessage = JSON.stringify({
+            type: 'offer',
+            fromUserId,
+            callId,
+            offer,
+        });
+        receiverUser.ws.send(offerMessage);
+
+        return true;
+    } catch (error) {
+        console.error('Error answering call:', error);
+        return false;
+    }
 };
-
 
 // Rejecting an individual call
 export const rejectCall = async (fromUserId: number, toUserId: number) => {

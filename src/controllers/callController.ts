@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { initiateCall, answerCall, rejectCall, initiateGroupCall, answerGroupCall, rejectGroupCall } from '../services/callService';
-import { wss } from '../app';
+import { wss } from '../websocket';
 import { getUserById } from '../services/userService';
 
 
@@ -49,10 +49,10 @@ export const initiateCallHandler = async (req: Request, res: Response) => {
 };
 
 export const answerCallHandler = async (req: Request, res: Response) => {
-    const { fromUserId, toUserId, callId } = req.body;
+    const { fromUserId, toUserId, callId, offer } = req.body; // Добавляем offer
 
     try {
-        const callAnswered = await answerCall(fromUserId, toUserId, callId);
+        const callAnswered = await answerCall(fromUserId, toUserId, callId, offer);
         if (callAnswered) {
             broadcastToClients('callAccepted', {
                 fromUserId,
@@ -69,6 +69,7 @@ export const answerCallHandler = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+
 
 
 export const rejectCallHandler = async (req: Request, res: Response) => {

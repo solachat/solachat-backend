@@ -6,7 +6,7 @@ import {
     updateMessageContent
 } from '../services/messageService';
 import { UserRequest } from '../types/types';
-import { wss } from '../app';
+import { wss } from '../websocket';
 import { decryptMessage, encryptMessage } from "../encryption/messageEncryption";
 import User from "../models/User";
 import Chat from "../models/Chat";
