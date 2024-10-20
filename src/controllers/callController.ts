@@ -25,6 +25,8 @@ export const initiateCallHandler = async (req: Request, res: Response) => {
         }
 
         const call = await initiateCall(fromUserId, toUserId);
+        console.log(`Call offer from ${fromUserId} to ${toUserId}`);
+
         if (call) {
             broadcastToClients('callOffer', {
                 fromUserId,

@@ -1,13 +1,7 @@
 import WebSocket from 'ws';
 import jwt from 'jsonwebtoken';
-import User from '../models/User';
 import { getUserById } from '../services/userService';
-import Message from '../models/Message';
-import { createMessage } from '../services/messageService';
-import Chat from '../models/Chat';
-import { decryptMessage } from '../encryption/messageEncryption';
-import { initiateCall, answerCall, rejectCall, initiateGroupCall, answerGroupCall, rejectGroupCall } from '../services/callService';
-
+import { initiateCall, answerCall, rejectCall } from '../services/callService';
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
@@ -16,7 +10,13 @@ export interface WebSocketUser {
     userId: number;
 }
 
+export interface ActiveCall {
+    callId: number;
+    participants: WebSocketUser[];
+}
+
 export const connectedUsers: WebSocketUser[] = [];
+export const activeCalls: ActiveCall[] = [];
 
 export const initWebSocketServer = (server: any) => {
     const wss = new WebSocket.Server({ server });
@@ -39,28 +39,39 @@ export const initWebSocketServer = (server: any) => {
                 return;
             }
 
+            // Проверяем, не подключен ли пользователь уже
+            const existingConnection = connectedUsers.find(u => u.userId === userId);
+            if (existingConnection) {
+                // Закрываем старое подключение, если оно существует
+                existingConnection.ws.close(4004, 'User reconnected');
+                connectedUsers.splice(connectedUsers.indexOf(existingConnection), 1);
+            }
+
+            console.log(`User ${user.username} with ID ${userId} connected.`);
             connectedUsers.push({ ws, userId });
             console.log(`User ${user.username} is now online`);
 
             ws.on('message', async (message: string) => {
-                const parsedMessage = JSON.parse(message);
+                try {
+                    const parsedMessage = JSON.parse(message);
 
-                if (parsedMessage.type === 'callOffer') {
-                    await initiateCall(userId, parsedMessage.toUserId);
-                } else if (parsedMessage.type === 'groupCallOffer') {
-                    await initiateGroupCall(userId, parsedMessage.participantUserIds);
-                } else if (parsedMessage.type === 'callAnswer') {
-                    await answerCall(parsedMessage.fromUserId, userId, parsedMessage.callId);
-                } else if (parsedMessage.type === 'groupCallAnswer') {
-                    await answerGroupCall(parsedMessage.fromUserId, parsedMessage.groupId, userId);
-                } else if (parsedMessage.type === 'callReject') {
-                    await rejectCall(parsedMessage.fromUserId, userId);
-                } else if (parsedMessage.type === 'groupCallReject') {
-                    await rejectGroupCall(parsedMessage.fromUserId, userId);
+                    if (parsedMessage.type === 'callOffer') {
+                        const call = await initiateCall(userId, parsedMessage.toUserId);
+                        addParticipantsToCall(call.id, [userId, parsedMessage.toUserId]);
+                    } else if (parsedMessage.type === 'callAnswer') {
+                        await answerCall(parsedMessage.fromUserId, userId, parsedMessage.callId);
+                        addParticipantsToCall(parsedMessage.callId, [userId]);
+                    } else if (parsedMessage.type === 'callReject') {
+                        await rejectCall(parsedMessage.fromUserId, userId);
+                        removeCall(parsedMessage.callId);
+                    }
+                } catch (err) {
+                    console.error(`Error processing message from user ${user.username}:`, err);
+                    ws.send(JSON.stringify({ type: 'error', message: 'Error processing your request' }));
                 }
             });
 
-            ws.on('close', async (code, reason) => {
+            ws.on('close', (code, reason) => {
                 console.log(`User ${user.username} disconnected with code ${code}, reason: ${reason}`);
                 removeUserConnection(userId);
             });
@@ -76,120 +87,38 @@ export const initWebSocketServer = (server: any) => {
     });
 };
 
-const handleMessage = async (userId: number, parsedMessage: any): Promise<void> => {
-    try {
-        console.time('Message Handling');
-        const { chatId, content } = parsedMessage;
+const getActiveCallByCallId = (callId: number): ActiveCall | null => {
+    return activeCalls.find(call => call.callId === callId) || null;
+};
 
-        const chat = await getChatAndUsers(chatId);
-        if (!chat || !chat.users || !isUserInChat(chat.users, userId)) return;
+const addParticipantsToCall = (callId: number, userIds: number[]) => {
+    let activeCall = getActiveCallByCallId(callId);
 
-        const sender = await getUserById(userId);
-        if (!sender) return;
-
-        const message = await createAndBroadcastMessage(chatId, userId, content, sender);
-
-        console.timeEnd('Message Handling');
-    } catch (error) {
-        console.error(`Error handling message from user ${userId}:`, error);
+    if (!activeCall) {
+        activeCall = { callId, participants: [] };
+        activeCalls.push(activeCall);
     }
-};
 
-const createAndBroadcastMessage = async (chatId: number, userId: number, content: string, sender: User) => {
-    console.time('Message Encryption');
-    const message = await createMessage(userId, chatId, content, null, sender);
-    console.timeEnd('Message Encryption');
-
-    console.time('Message Broadcasting');
-    await broadcastMessage(chatId, message);
-    console.timeEnd('Message Broadcasting');
-
-    return message;
-};
-
-const broadcastMessage = async (chatId: number, message: Message) => {
-    try {
-        const sender = await getUserById(message.userId);
-        if (!sender) return;
-
-        const chat = await getChatParticipants(chatId);
-        if (!chat || !chat.users) return;
-
-        const messagePayload = createMessagePayload(message, sender);
-        broadcastToParticipants(chat.users, chatId, messagePayload); // Передаем chatId
-    } catch (error) {
-        console.error('Error broadcasting message:', error);
-    }
-};
-
-const createMessagePayload = (message: Message, sender: User) => {
-    return JSON.stringify({
-        type: 'newMessage',
-        message: {
-            id: message.id,
-            content: decryptMessage(JSON.parse(message.content)),
-            createdAt: message.createdAt,
-            sender: {
-                id: sender.id,
-                username: sender.username,
-                realname: sender.realname,
-                avatar: sender.avatar,
-                online: sender.online,
-            }
+    userIds.forEach(userId => {
+        const wsUser = connectedUsers.find(user => user.userId === userId);
+        if (wsUser && !activeCall.participants.some(p => p.userId === userId)) {
+            activeCall.participants.push(wsUser);
         }
     });
 };
 
-const broadcastToParticipants = (participants: User[], chatId: number, payload: string) => {
-    const participantIds = participants.map(user => user.id);
-    connectedUsers.forEach(({ ws, userId }) => {
-        if (ws.readyState === WebSocket.OPEN && participantIds.includes(userId)) {
-            ws.send(JSON.stringify({
-                type: 'newMessage',
-                message: {
-                    chatId,
-                    ...JSON.parse(payload)
-                }
-            }));
-        }
-    });
-};
-
-const getChatAndUsers = async (chatId: number) => {
-    console.time('Database Query (Chat and Users)');
-    const chat = await Chat.findByPk(chatId, {
-        include: [{ model: User, as: 'users', attributes: ['id', 'username', 'avatar'] }],
-    });
-    console.timeEnd('Database Query (Chat and Users)');
-    return chat;
-};
-
-const getChatParticipants = async (chatId: number) => {
-    return await Chat.findByPk(chatId, { include: [{ model: User, attributes: ['id'] }] });
-};
-
-const isUserInChat = (users: User[], userId: number) => {
-    return users.some(user => user.id === userId);
+const removeCall = (callId: number) => {
+    const callIndex = activeCalls.findIndex(call => call.callId === callId);
+    if (callIndex !== -1) {
+        activeCalls.splice(callIndex, 1);
+        console.log(`Call with ID ${callId} removed.`);
+    }
 };
 
 const removeUserConnection = (userId: number) => {
     const index = connectedUsers.findIndex(user => user.userId === userId);
-    if (index !== -1) connectedUsers.splice(index, 1);
-};
-
-const updateUserStatus = async (userId: number, isOnline: boolean) => {
-    try {
-        const user = await User.findByPk(userId);
-        if (!user) return;
-
-        if (user.online !== isOnline) {
-            user.online = isOnline;
-            await user.save();
-            console.log(`User ${user.username} status updated to ${isOnline ? 'online' : 'offline'}`);
-        } else {
-            console.log(`User ${user.username} is already ${isOnline ? 'online' : 'offline'}. No update needed.`);
-        }
-    } catch (error) {
-        console.error('Error updating user status:', error);
+    if (index !== -1) {
+        connectedUsers.splice(index, 1);
+        console.log(`User with ID ${userId} removed from connected users`);
     }
 };

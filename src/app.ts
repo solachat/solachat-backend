@@ -24,15 +24,17 @@ const server = http.createServer(app);
 
 export const wss = new WebSocket.Server({ noServer: true });
 
+initWebSocketServer(wss);
+console.log('WebSocket server initialized successfully.');
+
+// Обработка каждого апгрейда соединения
 server.on('upgrade', (request, socket: Socket, head) => {
-    console.log('Upgrade request received');
+    console.log('Upgrade request received:', request.url);
     wss.handleUpgrade(request, socket, head, (ws) => {
-        console.log('WebSocket connection established');
-        wss.emit('connection', ws, request);
+        console.log('WebSocket connection established with:', request.url);
+        wss.emit('connection', ws, request); // Обработка нового WebSocket-соединения
     });
 });
-
-initWebSocketServer(wss);
 
 app.use('/uploads', express.static(uploadsPath, {
     setHeaders: (res, filePath) => {
@@ -56,8 +58,6 @@ app.use('/api/tokens', tokenRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/file', fileRoutes)
-
-
 
 const PORT = process.env.PORTSOCKET || 5000;
 const wsURL = `ws://localhost:${PORT}`;

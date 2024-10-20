@@ -15,24 +15,29 @@ export const initiateCall = async (fromUserId: number, toUserId: number) => {
 export const answerCall = async (fromUserId: number, toUserId: number, callId: number) => {
     const callerUser = connectedUsers.find((user: WebSocketUser) => user.userId === fromUserId);
 
-    if (callerUser && callerUser.ws.readyState === WebSocket.OPEN) {
-        const message = JSON.stringify({
-            type: 'callAccepted',
-            toUserId,
-            callId, // Добавляем callId в сообщение
-        });
-        callerUser.ws.send(message);
+    if (!callerUser) {
+        console.error(`Caller user with ID ${fromUserId} is not connected.`);
+        return false;  // Возвращаем false, если вызывающий пользователь не найден
+    }
 
-        await Call.update(
-            { status: 'accepted' },
-            { where: { id: callId, fromUserId, toUserId, status: 'initiated' } }
-        );
-
-        return true;
-    } else {
-        console.error('Caller user is not available for call');
+    if (callerUser.ws.readyState !== WebSocket.OPEN) {
+        console.error('Caller user WebSocket connection is not open');
         return false;
     }
+
+    const message = JSON.stringify({
+        type: 'callAccepted',
+        toUserId,
+        callId, // Добавляем callId в сообщение
+    });
+    callerUser.ws.send(message);
+
+    await Call.update(
+        { status: 'accepted' },
+        { where: { id: callId, fromUserId, toUserId, status: 'initiated' } }
+    );
+
+    return true;
 };
 
 
