@@ -35,7 +35,7 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
 
             console.time('DB Query: User and Chat');
             const [sender, chat] = await Promise.all([
-                User.findByPk(req.user!.id, { attributes: ['id', 'username', 'avatar'] }),
+                User.findByPk(req.user!.id, { attributes: ['id', 'username', 'avatar', 'verified'] }),
                 Chat.findByPk(Number(chatId)),
             ]);
             console.timeEnd('DB Query: User and Chat');

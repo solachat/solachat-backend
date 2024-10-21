@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { initiateCall, answerCall, rejectCall, initiateGroupCall, answerGroupCall, rejectGroupCall } from '../services/callService';
 import { wss } from '../websocket';
-import { getUserById } from '../services/userService';
+import { getUserById } from '../../../messenger/user-service/src/services/userService';
 
 
 const broadcastToClients = (type: string, payload: object) => {

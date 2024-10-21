@@ -79,18 +79,15 @@ export const getProfile = async (req: Request, res: Response) => {
 
         const isOwner = decoded.username === user.username;
 
-        // Деструктуризация для исключения пароля
         const { password, ...safeUserData } = user.dataValues;
 
-        // Формирование responseData с необходимыми полями
         const responseData: any = {
-            ...safeUserData, // Передаем все поля кроме password
+            ...safeUserData,
             avatar: user.avatar,
             isOwner,
             aboutMe: user.aboutMe,
         };
 
-        // Добавляем email только если пользователь разрешил или это владелец аккаунта
         if (user.shareEmail || isOwner) {
             responseData.email = user.email;
         }
@@ -301,4 +298,3 @@ export const attachPublicKey = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
-

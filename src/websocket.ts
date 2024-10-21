@@ -1,7 +1,8 @@
 import WebSocket from 'ws';
 import jwt from 'jsonwebtoken';
 import { Socket } from 'net';
-import { getUserById } from './services/userService';
+import { getUserById } from '../../messenger/user-service/src/services/userService';
+import { updateUserStatus } from './services/userService';
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 export const connectedUsers: { ws: WebSocket, userId: number }[] = [];
@@ -12,22 +13,20 @@ export interface WebSocketUser {
 }
 
 
-export let wss: WebSocket.Server;  // Экспортируемая переменная
+export let wss: WebSocket.Server;
 
 export const initWebSocketServer = (server: any) => {
     wss = new WebSocket.Server({ noServer: true });
 
-    // Обработка апгрейда соединений
     server.on('upgrade', (request: any, socket: Socket, head: any) => {
         console.log('Upgrade request received:', request.url);
 
         wss.handleUpgrade(request, socket, head, (ws: WebSocket) => {
             console.log('WebSocket connection established with:', request.url);
-            wss.emit('connection', ws, request); // Обработка нового WebSocket-соединения
+            wss.emit('connection', ws, request);
         });
     });
 
-    // Обработка нового WebSocket-соединения
     wss.on('connection', async (ws: WebSocket, req: any) => {
         const queryParams = new URLSearchParams(req.url?.split('?')[1]);
         const token = queryParams.get('token');
@@ -53,12 +52,10 @@ export const initWebSocketServer = (server: any) => {
 
             ws.on('message', (message: string) => {
                 const parsedMessage = JSON.parse(message);
-                // Обработка сообщений
             });
 
             ws.on('close', () => {
                 console.log(`User ${user.username} disconnected.`);
-                // Логика для удаления пользователя
                 removeUserConnection(userId);
             });
 
@@ -71,13 +68,20 @@ export const initWebSocketServer = (server: any) => {
     console.log('WebSocket server initialized successfully.');
 };
 
-const removeUserConnection = (userId: number) => {
+const removeUserConnection = async (userId: number) => {
     const index = connectedUsers.findIndex(user => user.userId === userId);
     if (index !== -1) {
         const disconnectedUser = connectedUsers.splice(index, 1)[0];
         if (disconnectedUser && disconnectedUser.ws.readyState === WebSocket.OPEN) {
-            disconnectedUser.ws.close(); // Закрываем старое соединение
+            disconnectedUser.ws.close();
         }
         console.log(`User with ID ${userId} removed from connected users`);
+
+        try {
+            await updateUserStatus(userId, false);
+            console.log(`User status updated to offline for userId: ${userId}`);
+        } catch (error) {
+            console.error(`Failed to update user status to offline for userId: ${userId}`, error);
+        }
     }
 };

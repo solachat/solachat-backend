@@ -78,7 +78,7 @@ export const getChatById = async (chatId: number) => {
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'realname', 'avatar', 'online'],
+                    attributes: ['id', 'username', 'realname', 'avatar', 'online', 'verified'],
                     through: { attributes: [] }
                 },
                 {
@@ -117,7 +117,7 @@ export const getChatsForUser = async (userId: number) => {
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'realname', 'avatar', 'online'],
+                    attributes: ['id', 'username', 'realname', 'avatar', 'online', 'verified'],
                     through: {
                         attributes: ['role'],
                     },
@@ -174,6 +174,7 @@ export const getChatsForUser = async (userId: number) => {
                     realname: user.realname,
                     avatar: user.avatar,
                     online: user.online,
+                    verified: user.verified,
                     role: (user as any).UserChats?.role || 'member',
                 })),
                 messages,
@@ -286,7 +287,7 @@ export const getChatWithMessages = async (chatId: number, userId: number) => {
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'realname', 'avatar'],
+                    attributes: ['id', 'username', 'realname', 'avatar', 'verified'],
                     through: { attributes: [] },
                     where: { id: userId }
                 },

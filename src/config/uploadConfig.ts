@@ -47,11 +47,19 @@ const storage = multer.diskStorage({
     },
     filename: (req, file, cb) => {
         const safeFileName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-        cb(null, safeFileName);
+        const destinationPath = getDestination(path.extname(safeFileName).toLowerCase().slice(1));
+
+        const fullPath = path.join(destinationPath, safeFileName);
+
+        if (fs.existsSync(fullPath)) {
+            const uniqueSuffix = Date.now();
+            const newFileName = `${path.basename(safeFileName, path.extname(safeFileName))}-${uniqueSuffix}${path.extname(safeFileName)}`;
+            cb(null, newFileName);
+        } else {
+            cb(null, safeFileName);
+        }
     }
 });
-
-
 
 const fileFilter = (req: UserRequest, file: Express.Multer.File, cb: FileFilterCallback) => {
     const validTypes = ['jpeg', 'jpg', 'png', 'gif', 'pdf', 'doc', 'docx', 'txt', 'mp4', 'avi', 'mov', 'mp3', 'wav', 'zip', 'rar'];
