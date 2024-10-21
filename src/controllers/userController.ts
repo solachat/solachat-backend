@@ -149,7 +149,6 @@ const ensureDirectoryExists = (dir: string) => {
     }
 };
 
-
 export const updateAvatar = async (req: UserRequest, res: Response) => {
     try {
         if (!req.user) {
@@ -240,7 +239,7 @@ export const searchUser = async (req: Request, res: Response) => {
                     { realname: { [Op.iLike]: `%${searchTerm}%` } },
                 ],
             },
-            attributes: ['id', 'realname', 'username', 'avatar', 'online'],
+            attributes: ['id', 'realname', 'username', 'avatar', 'online', "verified"],
         });
 
         res.status(200).json(users);

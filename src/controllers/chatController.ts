@@ -52,7 +52,6 @@ export const createPrivateChatController = async (req: Request, res: Response) =
     try {
         const chat = await createPrivateChat(user1Id, user2Id);
 
-        // Отправляем уведомление через WebSocket
         broadcastToClients('chatCreated', { chat });
 
         res.status(201).json(chat);
