@@ -18,6 +18,7 @@ import User from '../models/User';
 import UserChats from '../models/UserChats';
 import Chat from '../models/Chat';
 import {wss} from "../websocket";
+import {getUserById} from "../services/userService";
 
 const broadcastToClients = (type: string, payload: object) => {
     const messagePayload = JSON.stringify({ type, ...payload });
@@ -50,16 +51,53 @@ export const createPrivateChatController = async (req: Request, res: Response) =
     }
 
     try {
+        // Создаем чат между двумя пользователями
         const chat = await createPrivateChat(user1Id, user2Id);
 
-        broadcastToClients('chatCreated', { chat });
+        // Получаем информацию о пользователях
+        const user1 = await getUserById(user1Id);
+        const user2 = await getUserById(user2Id);
 
-        res.status(201).json(chat);
+        // Проверяем, существуют ли пользователи
+        if (!user1 || !user2) {
+            return res.status(404).json({ message: 'Один или оба пользователя не найдены.' });
+        }
+        
+        const chatWithUsers = {
+            id: chat.id,
+            isGroup: chat.isGroup,
+            createdAt: chat.createdAt,
+            updatedAt: chat.updatedAt,
+            name: chat.name,
+            avatar: chat.avatar,
+            users: [
+                {
+                    id: user1.id,
+                    username: user1.username,
+                    realname: user1.realname,
+                    avatar: user1.avatar,
+                    online: user1.online
+                },
+                {
+                    id: user2.id,
+                    username: user2.username,
+                    realname: user2.realname,
+                    avatar: user2.avatar,
+                    online: user2.online
+                }
+            ]
+        };
+
+        broadcastToClients('chatCreated', { chat: chatWithUsers });
+
+        res.status(201).json(chatWithUsers);
     } catch (error) {
         console.error('Ошибка создания чата:', error);
         res.status(500).json({ message: 'Ошибка создания чата.' });
     }
 };
+
+
 
 export const createGroupChatController = async (req: Request, res: Response) => {
     const { groupName, selectedUsers } = req.body;
