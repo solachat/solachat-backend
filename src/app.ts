@@ -20,7 +20,6 @@ console.log(`Serving static files from: ${uploadsPath}`);
 
 const server = http.createServer(app);
 
-// Инициализация WebSocket сервера
 initWebSocketServer(server);
 
 app.use('/uploads', express.static(uploadsPath, {
@@ -45,6 +44,19 @@ app.use('/api/tokens', tokenRoutes);
 app.use('/api/chats', chatRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/file', fileRoutes);
+
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error(err.stack);
+    res.status(500).json({ message: 'Произошла ошибка на сервере. Мы работаем над этим!' });
+});
 
 const PORT = process.env.PORTSOCKET || 5000;
 const wsURL = `ws://localhost:${PORT}`;

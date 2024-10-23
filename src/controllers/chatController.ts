@@ -51,18 +51,15 @@ export const createPrivateChatController = async (req: Request, res: Response) =
     }
 
     try {
-        // Создаем чат между двумя пользователями
         const chat = await createPrivateChat(user1Id, user2Id);
 
-        // Получаем информацию о пользователях
         const user1 = await getUserById(user1Id);
         const user2 = await getUserById(user2Id);
 
-        // Проверяем, существуют ли пользователи
         if (!user1 || !user2) {
             return res.status(404).json({ message: 'Один или оба пользователя не найдены.' });
         }
-        
+
         const chatWithUsers = {
             id: chat.id,
             isGroup: chat.isGroup,
