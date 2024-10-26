@@ -12,7 +12,6 @@ if (!hmacKey || hmacKey.length !== 64) {
     throw new Error('Invalid HMAC secret key length. The key must be a 64-character hexadecimal string (32 bytes).');
 }
 
-// Преобразуем ключи из hex-строки в байтовые массивы
 const aesKeyBuffer = Buffer.from(secretKey, 'hex');
 const hmacKeyBuffer = Buffer.from(hmacKey, 'hex');
 

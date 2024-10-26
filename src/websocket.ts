@@ -19,10 +19,8 @@ export const initWebSocketServer = (server: any) => {
     wss = new WebSocket.Server({ noServer: true });
 
     server.on('upgrade', (request: any, socket: Socket, head: any) => {
-        console.log('Upgrade request received:', request.url);
 
         wss.handleUpgrade(request, socket, head, (ws: WebSocket) => {
-            console.log('WebSocket connection established with:', request.url);
             wss.emit('connection', ws, request);
         });
     });
@@ -30,7 +28,6 @@ export const initWebSocketServer = (server: any) => {
     wss.on('connection', async (ws: WebSocket, req: any) => {
         const queryParams = new URLSearchParams(req.url?.split('?')[1]);
         const token = queryParams.get('token');
-        console.log('Token received:', token);
 
         if (!token) {
             ws.close(4001, 'No token provided');

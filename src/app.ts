@@ -16,7 +16,6 @@ import callRoutes from './routes/callRoutes';
 const app = express();
 
 const uploadsPath = path.resolve(__dirname, '../uploads');
-console.log(`Serving static files from: ${uploadsPath}`);
 
 const server = http.createServer(app);
 
@@ -59,7 +58,9 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 const PORT = process.env.PORTSOCKET || 5000;
-const wsURL = `ws://localhost:${PORT}`;
+const isProduction = process.env.NODE_ENV === 'production';
+const wsProtocol = isProduction ? 'wss' : 'ws';
+const wsURL = `${wsProtocol}://localhost:${PORT}`;
 
 server.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);

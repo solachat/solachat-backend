@@ -4,18 +4,18 @@ import { UserRequest } from '../types/types';
 import User from '../models/User';
 import logger from '../utils/logger';
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import {Op} from "sequelize";
-import {getDestination} from "../config/uploadConfig";
+import {getDestination, uploadFileToGCS} from "../config/uploadConfig";
+import {getSolanaBalance, getTokenBalance} from "../services/solanaService";
+import { v4 as uuidv4 } from 'uuid';
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
 export const registerUser = async (req: Request, res: Response) => {
     const { email, password, username, realname, wallet: publicKey } = req.body;
 
-    console.log('Registration Data:', { email, password, username, realname, publicKey });
 
     try {
         if (publicKey) {
@@ -92,6 +92,24 @@ export const getProfile = async (req: Request, res: Response) => {
             responseData.email = user.email;
         }
 
+        if (user.public_key) {
+            try {
+                const solanaBalance = await getSolanaBalance(user.public_key);
+                responseData.balance = solanaBalance;
+
+                const tokenBalance = await getTokenBalance(user.public_key);
+                responseData.tokenBalance = tokenBalance;
+            } catch (balanceError) {
+                const err = balanceError as Error;
+                logger.error(`Error fetching balance for public_key ${user.public_key}: ${err.message}`);
+                responseData.balanceError = 'Failed to fetch balances';
+            }
+        } else {
+            responseData.balance = 0;
+            responseData.tokenBalance = 0;
+        }
+
+
         res.json(responseData);
     } catch (error) {
         const err = error as Error;
@@ -122,7 +140,7 @@ export const updateProfile = async (req: Request, res: Response) => {
         const token = jwt.sign(
             { id: user.id, email: user.email, username: user.username },
             secret,
-            { expiresIn: '1h' }
+            { expiresIn: '48h' }
         );
 
         res.json({ user: user.toJSON(), token });
@@ -130,22 +148,6 @@ export const updateProfile = async (req: Request, res: Response) => {
         const err = error as Error;
         logger.error(`Profile update failed: ${err.message}`);
         res.status(500).json({ error: 'Error updating profile' });
-    }
-};
-
-const hashFile = (filePath: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const hash = crypto.createHash('sha256');
-        const stream = fs.createReadStream(filePath);
-        stream.on('data', (data) => hash.update(data));
-        stream.on('end', () => resolve(hash.digest('hex')));
-        stream.on('error', reject);
-    });
-};
-
-const ensureDirectoryExists = (dir: string) => {
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
     }
 };
 
@@ -165,30 +167,14 @@ export const updateAvatar = async (req: UserRequest, res: Response) => {
         }
 
         const fileExtension = path.extname(req.file.originalname).slice(1);
-        const destinationPath = getDestination(fileExtension);
+        const uniqueFileName = `${uuidv4()}.${fileExtension}`;
+        const destinationPath = `${getDestination(fileExtension)}/${uniqueFileName}`;
 
-        ensureDirectoryExists(destinationPath);
 
-        const uploadedFilePath = path.join(destinationPath, req.file.filename);
-        const uploadedFileHash = await hashFile(uploadedFilePath);
+        const publicUrl = await uploadFileToGCS(req.file.buffer, destinationPath);
+        logger.info(`File uploaded to GCS: ${publicUrl}`);
 
-        const existingUserWithSameHash = await User.findOne({ where: { avatarHash: uploadedFileHash } });
-
-        if (existingUserWithSameHash) {
-            fs.unlink(uploadedFilePath, (err) => {
-                if (err) {
-                    logger.error(`Error removing duplicate file: ${err.message}`);
-                }
-            });
-            return res.json({
-                message: 'Avatar is the same as an existing one, no changes made',
-                avatar: existingUserWithSameHash.avatar,
-            });
-        }
-
-        const avatarUrl = `${req.protocol}://${req.get('host')}/${destinationPath}/${req.file.filename}`;
-        user.avatar = avatarUrl;
-        user.avatarHash = uploadedFileHash;
+        user.avatar = publicUrl;
         await user.save();
 
         res.json({ message: 'Avatar updated successfully', avatar: user.avatar });
@@ -289,7 +275,6 @@ export const attachPublicKey = async (req: Request, res: Response) => {
         user.public_key = publicKey;
         await user.save();
 
-        logger.info(`Public key ${publicKey} successfully attached to user ${user.username}`);
         res.status(200).json({ message: 'Public key attached successfully', publicKey });
     } catch (error) {
         const err = error as Error;

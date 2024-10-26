@@ -1,6 +1,7 @@
 import { File } from '../models/File';
 import { encryptFile, decryptFile } from '../encryption/fileEncryption';
-import fs from "fs";
+import { getDestination, uploadFileToGCS } from '../config/uploadConfig';
+import path from 'path';
 
 export const createFile = async (
     file: Express.Multer.File,
@@ -9,41 +10,46 @@ export const createFile = async (
     decrypt: boolean = false
 ) => {
     try {
-        const encryptedFilePath = `${file.path}.enc`;
-
-        console.log(`Проверка существования оригинального файла: ${file.path}`);
-        if (!fs.existsSync(file.path)) {
-            throw new Error(`Оригинальный файл не существует по пути: ${file.path}`);
+        if (!file || !file.buffer) {
+            throw new Error(`Оригинальный файл отсутствует или его буфер данных недоступен.`);
         }
 
-        console.log(`Начало шифрования файла. Оригинальный путь: ${file.path}, путь для шифрования: ${encryptedFilePath}`);
+        // Загрузка оригинального файла в Google Cloud Storage
+        const originalDestinationPath = `${getDestination(file.mimetype)}/${file.originalname}`;
+        const originalPublicUrl = await uploadFileToGCS(file.buffer, originalDestinationPath);
+        console.log(`Оригинальный файл загружен в GCS: ${originalPublicUrl}`);
 
-        await encryptFile(file.path);
+        // Шифруем файл
+        const { encryptedBuffer, metadata } = await encryptFile(file.buffer, file.originalname);
 
-        console.log(`Проверка существования зашифрованного файла: ${encryptedFilePath}`);
-        if (!fs.existsSync(encryptedFilePath)) {
-            throw new Error(`Зашифрованный файл не создан по пути: ${encryptedFilePath}`);
-        }
+        // Определение пути для зашифрованного файла в GCS
+        const encryptedDestinationPath = `${getDestination(file.mimetype)}/${file.originalname}.enc`;
+        const encryptedPublicUrl = await uploadFileToGCS(encryptedBuffer, encryptedDestinationPath);
+        console.log(`Файл успешно зашифрован и загружен в GCS: ${encryptedPublicUrl}`);
 
+        // Загрузка метаданных шифрования в GCS
+        const metadataPath = `${encryptedDestinationPath}.meta`;
+        await uploadFileToGCS(Buffer.from(JSON.stringify(metadata)), metadataPath);
+
+        // Сохранение записи в базе данных
         const savedFile = await File.create({
             fileName: file.originalname,
-            filePath: encryptedFilePath,
+            filePath: encryptedPublicUrl, // Ссылка на зашифрованный файл
+            originalFilePath: originalPublicUrl, // Ссылка на оригинальный файл
             fileType: file.mimetype,
             userId: userId,
             chatId: chatId,
         });
 
         if (decrypt) {
-            const decryptedFilePath = `${file.path}`;
-            console.log(`Начало расшифровки файла. Путь к зашифрованному файлу: ${encryptedFilePath}, путь для расшифровки: ${decryptedFilePath}`);
-            await decryptFile(encryptedFilePath);
+            // Дешифруем зашифрованный буфер
+            const decryptedBuffer = await decryptFile(encryptedBuffer, metadata);
 
-            console.log(`Проверка существования расшифрованного файла: ${decryptedFilePath}`);
-            if (!fs.existsSync(decryptedFilePath)) {
-                throw new Error(`Расшифрованный файл не создан по пути: ${decryptedFilePath}`);
-            }
+            // Загрузка расшифрованного файла в GCS
+            const decryptedUrl = await uploadFileToGCS(decryptedBuffer, `${encryptedDestinationPath}.decrypted`);
+            console.log(`Расшифрованный файл загружен в GCS: ${decryptedUrl}`);
 
-            return { savedFile, decryptedFilePath };
+            return { savedFile, decryptedFilePath: decryptedUrl };
         }
 
         return savedFile;

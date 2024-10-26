@@ -7,6 +7,12 @@ import file from "../models/File";
 import fs from "fs";
 import UserChats from "../models/UserChats";
 import { decryptFile } from '../encryption/fileEncryption';
+import { Storage } from '@google-cloud/storage';
+
+
+const storageClient = new Storage();
+const bucketName = 'solacoin-org-files';
+const bucket = storageClient.bucket(bucketName);
 
 const findUsersByIds = async (userIds: number[]) => {
     const users = await User.findAll({ where: { id: userIds } });
@@ -189,15 +195,17 @@ export const getChatsForUser = async (userId: number) => {
 };
 
 
-const handleFileAttachment = async (attachment: any) => {
+export const handleFileAttachment = async (attachment: any) => {
     const encryptedFilePath = attachment.filePath;
     const metadataPath = `${encryptedFilePath}.meta`;
 
     if (fs.existsSync(metadataPath)) {
         const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+        const encryptedBuffer = fs.readFileSync(encryptedFilePath);
+        const decryptedBuffer = await decryptFile(encryptedBuffer, metadata);
         const decryptedFilePath = encryptedFilePath.replace('.enc', '');
+        fs.writeFileSync(decryptedFilePath, decryptedBuffer);
 
-        await decryptFile(encryptedFilePath);
         return { fileName: metadata.originalFileName, filePath: decryptedFilePath };
     }
 
@@ -217,8 +225,23 @@ export const deleteChat = async (chatId: number, userId: number, userRole: strin
             if (message.fileId) {
                 const fileRecord = await file.findByPk(message.fileId);
                 if (fileRecord) {
-                    fs.unlinkSync(fileRecord.filePath);
+                    const filePath = fileRecord.filePath;
+                    const fileName = filePath.split('/').pop();
+
+                    try {
+                        await bucket.file(filePath).delete();
+                        console.log(`Файл удалён из GCS: ${filePath}`);
+                    } catch (err: unknown) {
+                        if (err instanceof Error) {
+                            console.error(`Ошибка при удалении файла: ${err.message}`);
+                        } else {
+                            console.error('Неизвестная ошибка при удалении файла:', err);
+                        }
+                    }
+
                     await fileRecord.destroy();
+                } else {
+                    console.warn(`Файл с ID ${message.fileId} не найден в базе данных.`);
                 }
             }
         }));
@@ -226,10 +249,15 @@ export const deleteChat = async (chatId: number, userId: number, userRole: strin
         await Message.destroy({ where: { chatId } });
         await file.destroy({ where: { chatId } });
         await Chat.destroy({ where: { id: chatId } });
+
+        console.log(`Чат с ID ${chatId} успешно удалён.`);
     } catch (error) {
+        console.error('Ошибка удаления чата:', error);
         throw new Error('Не удалось удалить чат');
     }
 };
+
+
 
 export const assignRole = async (chatId: number, userId: number, role: 'admin' | 'member') => {
     const userChat = await UserChats.findOne({ where: { chatId, userId } });

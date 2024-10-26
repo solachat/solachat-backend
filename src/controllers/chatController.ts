@@ -19,6 +19,8 @@ import UserChats from '../models/UserChats';
 import Chat from '../models/Chat';
 import {wss} from "../websocket";
 import {getUserById} from "../services/userService";
+import {getDestination, uploadFileToGCS} from "../config/uploadConfig";
+import path from "path";
 
 const broadcastToClients = (type: string, payload: object) => {
     const messagePayload = JSON.stringify({ type, ...payload });
@@ -95,7 +97,6 @@ export const createPrivateChatController = async (req: Request, res: Response) =
 };
 
 
-
 export const createGroupChatController = async (req: Request, res: Response) => {
     const { groupName, selectedUsers } = req.body;
 
@@ -115,7 +116,11 @@ export const createGroupChatController = async (req: Request, res: Response) => 
             userIds.push(creatorId);
         }
 
-        const avatarUrl = req.file ? `${req.protocol}://${req.get('host')}/uploads/images/${req.file.filename}` : undefined;
+        let avatarUrl: string | undefined;
+        if (req.file) {
+            avatarUrl = await uploadFileToGCS(req.file.buffer, `${getDestination(path.extname(req.file.originalname).slice(1))}/${req.file.filename}`);
+            console.log(`Avatar uploaded to GCS: ${avatarUrl}`);
+        }
 
         const chat = await createGroupChat(userIds, groupName, creatorId, avatarUrl);
 
