@@ -5,177 +5,232 @@ import {
     getChatById,
     getChatWithMessages,
     getChatsForUser,
-    deleteChat, addUsersToGroupChat, kickUserFromChat, assignRole, getUserRoleInChat, updateChatSettings
+    deleteChat,
+    addUsersToGroupChat,
+    kickUserFromChat,
+    assignRole,
+    getUserRoleInChat,
+    updateChatSettings
 } from '../services/chatService';
 import { UserRequest } from '../types/types';
-import multer from 'multer';
-import jwt from "jsonwebtoken";
-import User from "../models/User";
-import UserChats from "../models/UserChats";
-import Chat from "../models/Chat";
+import jwt from 'jsonwebtoken';
+import User from '../models/User';
+import UserChats from '../models/UserChats';
+import Chat from '../models/Chat';
+import {wss} from "../websocket";
+import {getUserById} from "../services/userService";
+
+const broadcastToClients = (type: string, payload: object) => {
+    const messagePayload = JSON.stringify({ type, ...payload });
+    wss.clients.forEach((client: any) => {
+        if (client.readyState === client.OPEN) {
+            client.send(messagePayload);
+        }
+    });
+};
+
+const extractUserIdFromToken = (req: Request): number | null => {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+        return null;
+    }
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { id: number };
+        return decoded.id;
+    } catch {
+        return null;
+    }
+};
 
 export const createPrivateChatController = async (req: Request, res: Response) => {
     const { user1Id, user2Id } = req.body;
+
+    if (user1Id === user2Id) {
+        return res.status(400).json({ message: 'Нельзя создать чат с самим собой' });
+    }
+
     try {
-        if (user1Id === user2Id) {
-            return res.status(400).json({ message: 'Нельзя создать чат с самим собой' });
+        const chat = await createPrivateChat(user1Id, user2Id);
+
+        const user1 = await getUserById(user1Id);
+        const user2 = await getUserById(user2Id);
+
+        if (!user1 || !user2) {
+            return res.status(404).json({ message: 'Один или оба пользователя не найдены.' });
         }
 
-        const chat = await createPrivateChat(user1Id, user2Id);
-        return res.status(201).json(chat);
+        const chatWithUsers = {
+            id: chat.id,
+            isGroup: chat.isGroup,
+            createdAt: chat.createdAt,
+            updatedAt: chat.updatedAt,
+            name: chat.name,
+            avatar: chat.avatar,
+            users: [
+                {
+                    id: user1.id,
+                    username: user1.username,
+                    realname: user1.realname,
+                    avatar: user1.avatar,
+                    online: user1.online
+                },
+                {
+                    id: user2.id,
+                    username: user2.username,
+                    realname: user2.realname,
+                    avatar: user2.avatar,
+                    online: user2.online
+                }
+            ]
+        };
+
+        broadcastToClients('chatCreated', { chat: chatWithUsers });
+
+        res.status(201).json(chatWithUsers);
     } catch (error) {
-        console.error('Error creating private chat:', (error as Error).message);
-        return res.status(500).json({ message: 'Failed to create chat' });
+        console.error('Ошибка создания чата:', error);
+        res.status(500).json({ message: 'Ошибка создания чата.' });
     }
 };
+
+
 
 export const createGroupChatController = async (req: Request, res: Response) => {
     const { groupName, selectedUsers } = req.body;
 
-    if (!groupName || !Array.isArray(selectedUsers) || selectedUsers.length === 0) {
+    if (!groupName || !selectedUsers || selectedUsers.length === 0) {
         return res.status(400).json({ message: 'Не все обязательные поля заполнены' });
     }
 
-    const userIds = selectedUsers.map((userId: string) => parseInt(userId, 10));
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) {
-        return res.status(401).json({ message: 'Токен отсутствует' });
-    }
-
-    let creatorId: number;
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { id: number };
-        creatorId = decoded.id;
-    } catch (error) {
-        return res.status(403).json({ message: 'Неверный токен' });
-    }
+        const userIds = selectedUsers.map((userId: string) => parseInt(userId, 10));
+        const creatorId = extractUserIdFromToken(req);
 
-    if (!userIds.includes(creatorId)) {
-        userIds.push(creatorId);
-    }
+        if (!creatorId) {
+            return res.status(401).json({ message: 'Токен отсутствует или неверный' });
+        }
 
-    let avatarUrl: string | undefined;
-    if (req.file) {
-        avatarUrl = `${req.protocol}://${req.get('host')}/uploads/images/${req.file.filename}`;
-    }
+        if (!userIds.includes(creatorId)) {
+            userIds.push(creatorId);
+        }
 
-    try {
+        const avatarUrl = req.file ? `${req.protocol}://${req.get('host')}/uploads/images/${req.file.filename}` : undefined;
+
         const chat = await createGroupChat(userIds, groupName, creatorId, avatarUrl);
-        return res.status(201).json(chat);
+
+        broadcastToClients('groupChatCreated', { chat });
+
+        res.status(201).json(chat);
     } catch (error) {
-        console.error('Ошибка при создании группы:', (error as Error).message);
-        return res.status(500).json({ message: 'Не удалось создать группу.' });
+        console.error('Ошибка создания группы:', error);
+        res.status(500).json({ message: 'Ошибка создания группы.' });
     }
 };
 
-
 export const getChatController = async (req: Request, res: Response) => {
-    const { chatId } = req.params;
-
-    const chatIdNumber = Number(chatId);
-    if (isNaN(chatIdNumber)) {
-        return res.status(400).json({ message: 'Invalid chat ID' });
+    const chatId = Number(req.params.chatId);
+    if (isNaN(chatId)) {
+        return res.status(400).json({ message: 'Неверный идентификатор чата' });
     }
 
     try {
-        const chat = await getChatById(chatIdNumber);
+        const chat = await getChatById(chatId);
         return res.status(200).json(chat);
     } catch (error) {
-        console.error('Error fetching chat by ID:', (error as Error).message);
-        return res.status(500).json({ message: 'Failed to fetch chat' });
+        console.error('Ошибка получения чата:', error);
+        res.status(500).json({ message: 'Ошибка получения чата' });
     }
 };
 
 export const getChatsController = async (req: UserRequest, res: Response) => {
-    try {
-        const userId = req.user?.id;
-        if (!userId || isNaN(Number(userId))) {
-            return res.status(400).json({ message: 'Invalid or missing User ID' });
-        }
+    const userId = req.user?.id;
 
-        const chats = await getChatsForUser(Number(userId));
-        return res.status(200).json(chats);
+    if (!userId) {
+        return res.status(400).json({ message: 'Недействительный или отсутствующий ID пользователя' });
+    }
+
+    try {
+        const chats = await getChatsForUser(userId);
+        res.status(200).json(chats);
     } catch (error) {
-        console.error('Error fetching chats:', (error as Error).message);
-        return res.status(500).json({ message: 'Failed to fetch chats' });
+        console.error('Ошибка получения чатов:', error);
+        res.status(500).json({ message: 'Ошибка получения чатов' });
     }
 };
 
 export const getChatWithMessagesController = async (req: UserRequest, res: Response) => {
-    const { chatId } = req.params;
+    const chatId = Number(req.params.chatId);
+    const userId = req.user?.id;
 
-    const chatIdNumber = Number(chatId);
-    if (isNaN(chatIdNumber)) {
-        return res.status(400).json({ message: 'Invalid chat ID' });
+    if (isNaN(chatId)) {
+        return res.status(400).json({ message: 'Неверный идентификатор чата' });
+    }
+
+    if (!userId) {
+        return res.status(401).json({ message: 'Не авторизован' });
     }
 
     try {
-        const userId = req.user?.id;
-        if (!userId) {
-            return res.status(401).json({ message: 'Unauthorized' });
-        }
-
-        const chat = await getChatWithMessages(chatIdNumber, userId);
-        return res.status(200).json(chat);
+        const chat = await getChatWithMessages(chatId, userId);
+        res.status(200).json(chat);
     } catch (error) {
-        console.error('Error fetching chat with messages:', (error as Error).message);
-        return res.status(500).json({ message: 'Failed to fetch chat with messages' });
+        console.error('Ошибка получения чата с сообщениями:', error);
+        res.status(500).json({ message: 'Ошибка получения чата с сообщениями' });
     }
 };
 
 export const deleteChatController = async (req: Request, res: Response) => {
-    const { chatId } = req.params;
+    const chatId = Number(req.params.chatId);
     const userId = req.user?.id;
 
+    if (isNaN(chatId)) {
+        return res.status(400).json({ message: 'Неверный идентификатор чата' });
+    }
+
+    if (!userId) {
+        return res.status(403).json({ message: 'Информация о пользователе отсутствует' });
+    }
+
     try {
-        const chatIdNumber = Number(chatId);
-        if (isNaN(chatIdNumber)) {
-            return res.status(400).json({ message: 'Invalid chat ID' });
-        }
-
-        if (!userId) {
-            return res.status(403).json({ message: 'User information is missing' });
-        }
-
-        const userChatRecord = await UserChats.findOne({ where: { userId, chatId: chatIdNumber } });
+        const userChatRecord = await UserChats.findOne({ where: { userId, chatId } });
         if (!userChatRecord) {
-            return res.status(404).json({ message: 'User is not a member of this chat' });
+            return res.status(404).json({ message: 'Пользователь не является участником этого чата' });
         }
 
-        const userRole = userChatRecord.role;
-
-        const chat = await Chat.findOne({ where: { id: chatIdNumber } });
-
+        const chat = await Chat.findOne({ where: { id: chatId } });
         if (!chat) {
-            return res.status(404).json({ message: 'Chat not found' });
+            return res.status(404).json({ message: 'Чат не найден' });
         }
 
-        const isGroup = chat.isGroup;
+        await deleteChat(chatId, userId, userChatRecord.role, chat.isGroup);
 
-        await deleteChat(chatIdNumber, userId, userRole, isGroup);
+        broadcastToClients('chatDeleted', { chatId });
 
-        return res.status(200).json({ message: 'Chat deleted successfully' });
+        res.status(200).json({ message: 'Чат успешно удалён.' });
     } catch (error) {
-        console.error('Error deleting chat:', (error as Error).message);
-        return res.status(500).json({ message: 'Failed to delete chat' });
+        console.error('Ошибка удаления чата:', error);
+        res.status(500).json({ message: 'Ошибка удаления чата.' });
     }
 };
-
 
 export const addUsersToChatController = async (req: Request, res: Response) => {
     const { chatId, newUserIds } = req.body;
     const userId = req.user?.id;
 
-    if (!chatId || !newUserIds || !Array.isArray(newUserIds) || newUserIds.length === 0) {
-        return res.status(400).json({ message: 'Неверные данные' });
+    if (!chatId || !Array.isArray(newUserIds) || newUserIds.length === 0) {
+        return res.status(400).json({ message: 'Неверные данные.' });
     }
 
     try {
         await addUsersToGroupChat(chatId, newUserIds, userId!);
-        res.status(200).json({ message: 'Участники успешно добавлены' });
+
+        broadcastToClients('usersAddedToChat', { chatId, newUserIds });
+
+        res.status(200).json({ message: 'Пользователи успешно добавлены в чат.' });
     } catch (error) {
-        console.error('Ошибка при добавлении участников:', error);
-        res.status(500).json({ message: 'Не удалось добавить участников в чат' });
+        console.error('Ошибка добавления пользователей в чат:', error);
+        res.status(500).json({ message: 'Ошибка добавления пользователей в чат.' });
     }
 };
 
@@ -184,48 +239,46 @@ export const kickUserController = async (req: Request, res: Response) => {
     const { userIdToKick } = req.body;
     const userId = req.user?.id;
 
-    console.log("Получен запрос на удаление:", chatId, userIdToKick, userId);
-
     if (!chatId || !userIdToKick) {
-        return res.status(400).json({ message: 'Неверные данные' });
+        return res.status(400).json({ message: 'Неверные данные.' });
     }
 
     try {
         const userRole = await getUserRoleInChat(userId!, Number(chatId));
-
         if (userRole !== 'owner' && userRole !== 'admin') {
-            return res.status(403).json({ message: 'У вас нет прав для удаления участников из этого чата' });
+            return res.status(403).json({ message: 'Нет прав для удаления пользователей.' });
         }
 
         const userToKick = await User.findByPk(userIdToKick);
         if (!userToKick) {
-            return res.status(404).json({ message: 'Пользователь не найден' });
+            return res.status(404).json({ message: 'Пользователь не найден.' });
         }
 
         await kickUserFromChat(Number(chatId), userIdToKick, userId!);
-        res.status(200).json({ message: 'Участник успешно удален из чата' });
+
+        // Уведомляем всех участников через WebSocket
+        broadcastToClients('userKickedFromChat', { chatId, userIdToKick });
+
+        res.status(200).json({ message: 'Пользователь успешно удалён.' });
     } catch (error) {
-        console.error('Ошибка при удалении участника:', error);
-        res.status(500).json({ message: 'Не удалось удалить участника' });
+        console.error('Ошибка удаления пользователя из чата:', error);
+        res.status(500).json({ message: 'Ошибка удаления пользователя из чата.' });
     }
 };
-
 
 export const assignRoleController = async (req: Request, res: Response) => {
     const { userIdToAssign, role } = req.body;
     const { chatId } = req.params;
-    const userId = req.user?.id;
-
-    if (!chatId || !userIdToAssign || !role) {
-        return res.status(400).json({ message: 'Неверные данные' });
-    }
 
     try {
         await assignRole(Number(chatId), userIdToAssign, role);
-        res.status(200).json({ message: 'Роль успешно назначена' });
+
+        broadcastToClients('roleAssigned', { chatId, userIdToAssign, role });
+
+        res.status(200).json({ message: 'Роль успешно назначена.' });
     } catch (error) {
-        console.error('Ошибка при назначении роли:', error);
-        res.status(500).json({ message: 'Не удалось назначить роль' });
+        console.error('Ошибка назначения роли:', error);
+        res.status(500).json({ message: 'Ошибка назначения роли.' });
     }
 };
 
@@ -234,34 +287,17 @@ export const updateChatSettingsController = async (req: Request, res: Response) 
     const { groupName } = req.body;
     const avatar = req.file;
 
-    if (!chatId) {
-        return res.status(400).json({ message: 'Chat ID is required' });
-    }
-
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) {
-        return res.status(401).json({ message: 'Token is missing' });
-    }
-
-    let userId: number;
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { id: number };
-        userId = decoded.id;
+        const avatarUrl = avatar ? `${req.protocol}://${req.get('host')}/uploads/images/${avatar.filename}` : undefined;
+
+        const updatedChat = await updateChatSettings(Number(chatId), req.user!.id, groupName, avatarUrl);
+
+        // Уведомляем всех участников через WebSocket
+        broadcastToClients('chatSettingsUpdated', { chat: updatedChat });
+
+        res.status(200).json({ message: 'Настройки чата успешно обновлены.' });
     } catch (error) {
-        return res.status(403).json({ message: 'Invalid token' });
-    }
-
-    console.log('Extracted userId:', userId);
-    console.log('Updating chat:', { chatId, groupName, avatar });
-
-    const avatarUrl = avatar ? `${req.protocol}://${req.get('host')}/uploads/images/${avatar.filename}` : undefined;
-
-    try {
-        const updatedChat = await updateChatSettings(Number(chatId), userId, groupName, avatarUrl);
-        return res.status(200).json({ message: 'Chat settings updated successfully', chat: updatedChat });
-    } catch (error) {
-        console.error('Error updating chat settings:', error);
-        return res.status(500).json({ message: 'Failed to update chat settings' });
+        console.error('Ошибка обновления настроек чата:', error);
+        res.status(500).json({ message: 'Ошибка обновления настроек чата.' });
     }
 };
-

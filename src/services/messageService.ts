@@ -1,5 +1,4 @@
 import Message from '../models/Message';
-import Chat from '../models/Chat';
 import User from '../models/User';
 import File from '../models/File';
 import { encryptMessage } from "../encryption/messageEncryption";
@@ -13,6 +12,7 @@ export const createMessage = async (
 ) => {
     const encryptedContent = encryptMessage(content);
 
+    console.time('DB Write: Message');
     const message = await Message.create({
         chatId,
         userId,
@@ -20,6 +20,8 @@ export const createMessage = async (
         fileId: fileId || undefined,
         timestamp: new Date().toISOString(),
     });
+    console.timeEnd('DB Write: Message');
+
 
     return message;
 };

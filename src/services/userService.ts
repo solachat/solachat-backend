@@ -1,44 +1,33 @@
-import crypto from 'crypto';
 import User from '../models/User';
-
-const AES_SECRET_KEY = process.env.AES_SECRET_KEY || 'default_secret_key_32_bytes_long';
-
-console.log('AES_SECRET_KEY:', AES_SECRET_KEY, 'Length:', AES_SECRET_KEY.length);
-
-if (AES_SECRET_KEY.length !== 32) {
-    throw new Error('Invalid AES key length. The key must be exactly 32 bytes long.');
-}
-
-const encryptPassword = (password: string): string => {
-    const cipher = crypto.createCipheriv('aes-256-cbc', AES_SECRET_KEY, Buffer.alloc(16, 0));
-    let encrypted = cipher.update(password, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    return encrypted;
-};
-
-const decryptPassword = (encryptedPassword: string): string => {
-    const decipher = crypto.createDecipheriv('aes-256-cbc', AES_SECRET_KEY, Buffer.alloc(16, 0));
-    let decrypted = decipher.update(encryptedPassword, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-};
+import generateAvatar from "../utils/generatorAvatar";
+import { comparePassword, hashPassword } from '../encryption/bcryptEncryption';
 
 export const createUser = async (
     email: string,
     password: string,
     publicKey: string | null,
     username: string,
-    realname: string
+    realname: string,
+    avatar: string | null
 ) => {
-    const encryptedPassword = encryptPassword(password);
+    const hashedPassword = await hashPassword(password);
+
+    let avatarUrl = avatar;
+    if (!avatarUrl) {
+        avatarUrl = await generateAvatar(username);
+        console.log(`Аватарка сгенерирована для пользователя ${username}`);
+    }
+
     const user = await User.create({
         email,
-        password: encryptedPassword,
+        password: hashedPassword,
         public_key: publicKey || null,
         username,
         realname,
+        avatar: avatarUrl,
         lastLogin: new Date(),
     });
+
     console.log('Creating user with public key:', publicKey);
     return user;
 };
@@ -47,8 +36,8 @@ export const checkPassword = async (userId: number, password: string): Promise<b
     const user = await User.findByPk(userId);
     if (!user) throw new Error('User not found');
 
-    const decryptedPassword = decryptPassword(user.password);
-    return decryptedPassword === password;
+    const isPasswordValid = await comparePassword(password, user.password);
+    return isPasswordValid;
 };
 
 export const getUserById = async (userId: number) => {

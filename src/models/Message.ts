@@ -16,6 +16,7 @@ export class Message extends Model {
     public unread!: boolean;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
+    public isRead!: boolean;
 }
 
 Message.init(
@@ -49,6 +50,10 @@ Message.init(
             allowNull: true,
         },
         isEdited: {
+            type: DataTypes.BOOLEAN,
+            defaultValue: false,
+        },
+        isRead: {
             type: DataTypes.BOOLEAN,
             defaultValue: false,
         },

@@ -3,7 +3,7 @@ import {
     sendMessageController,
     getMessagesController,
     editMessageController,
-    deleteMessageController
+    deleteMessageController, markMessageAsReadController
 } from '../controllers/messageController';
 import { authenticateToken } from '../middleware/authMiddleware';
 import { upload } from '../config/uploadConfig';
@@ -21,5 +21,7 @@ router.get('/:chatId', authenticateToken, getMessagesController);
 router.put('/:messageId', authenticateToken, editMessageController);
 
 router.delete('/messages/:messageId', authenticateToken, deleteMessageController);
+router.put('/:messageId/read', authenticateToken, markMessageAsReadController);
+
 
 export default router;

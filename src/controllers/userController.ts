@@ -9,7 +9,6 @@ import fs from 'fs';
 import path from 'path';
 import {Op} from "sequelize";
 import {getDestination} from "../config/uploadConfig";
-import {getSolanaBalance, getTokenBalance} from "../services/solanaService";
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
@@ -26,7 +25,7 @@ export const registerUser = async (req: Request, res: Response) => {
             }
         }
 
-        const user = await createUser(email, password, publicKey || null, username, realname);
+        const user = await createUser(email, password, publicKey || null, username, realname, null);
         logger.info(`User registered: ${user.email}, Wallet: ${publicKey || 'No public key provided'}`);
 
         const token = jwt.sign({ id: user.id, email: user.email, username: user.username }, secret, { expiresIn: '24h' });
@@ -80,8 +79,10 @@ export const getProfile = async (req: Request, res: Response) => {
 
         const isOwner = decoded.username === user.username;
 
+        const { password, ...safeUserData } = user.dataValues;
+
         const responseData: any = {
-            ...user.dataValues,
+            ...safeUserData,
             avatar: user.avatar,
             isOwner,
             aboutMe: user.aboutMe,
@@ -89,23 +90,6 @@ export const getProfile = async (req: Request, res: Response) => {
 
         if (user.shareEmail || isOwner) {
             responseData.email = user.email;
-        }
-
-        if (user.public_key) {
-            try {
-                const solanaBalance = await getSolanaBalance(user.public_key);
-                responseData.balance = solanaBalance;
-
-                const tokenBalance = await getTokenBalance(user.public_key);
-                responseData.tokenBalance = tokenBalance;
-            } catch (balanceError) {
-                const err = balanceError as Error; // Явно приводим к Error
-                logger.error(`Error fetching balance for public_key ${user.public_key}: ${err.message}`);
-                responseData.balanceError = 'Failed to fetch balances';
-            }
-        } else {
-            responseData.balance = 0;
-            responseData.tokenBalance = 0;
         }
 
         res.json(responseData);
@@ -164,7 +148,6 @@ const ensureDirectoryExists = (dir: string) => {
         fs.mkdirSync(dir, { recursive: true });
     }
 };
-
 
 export const updateAvatar = async (req: UserRequest, res: Response) => {
     try {
@@ -256,7 +239,7 @@ export const searchUser = async (req: Request, res: Response) => {
                     { realname: { [Op.iLike]: `%${searchTerm}%` } },
                 ],
             },
-            attributes: ['id', 'realname', 'username', 'avatar'],
+            attributes: ['id', 'realname', 'username', 'avatar', 'online', "verified"],
         });
 
         res.status(200).json(users);
@@ -314,4 +297,3 @@ export const attachPublicKey = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
-

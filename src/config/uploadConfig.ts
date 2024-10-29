@@ -2,9 +2,7 @@ import multer, { FileFilterCallback } from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { UserRequest } from '../types/types';
-import { encryptFile } from '../encryption/fileEncryption'; // Импорт функции шифрования файла
 
-// Создание каталога, если он не существует
 const ensureDirectoryExists = (dir: string) => {
     if (!fs.existsSync(dir)) {
         console.log(`Каталог ${dir} не существует. Создаем...`);
@@ -12,7 +10,6 @@ const ensureDirectoryExists = (dir: string) => {
     }
 };
 
-// Получение директории в зависимости от типа файла
 const getDestination = (fileExtension: string) => {
     switch (fileExtension) {
         case 'jpeg':
@@ -45,16 +42,24 @@ const storage = multer.diskStorage({
         const fileExtension = path.extname(file.originalname).toLowerCase().slice(1);
         const destinationPath = getDestination(fileExtension);
 
-        ensureDirectoryExists(destinationPath); // Убедимся, что директория существует
+        ensureDirectoryExists(destinationPath);
         cb(null, destinationPath);
     },
     filename: (req, file, cb) => {
-        // Сохраняем файл с оригинальным именем
-        cb(null, file.originalname);
+        const safeFileName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+        const destinationPath = getDestination(path.extname(safeFileName).toLowerCase().slice(1));
+
+        const fullPath = path.join(destinationPath, safeFileName);
+
+        if (fs.existsSync(fullPath)) {
+            const uniqueSuffix = Date.now();
+            const newFileName = `${path.basename(safeFileName, path.extname(safeFileName))}-${uniqueSuffix}${path.extname(safeFileName)}`;
+            cb(null, newFileName);
+        } else {
+            cb(null, safeFileName);
+        }
     }
 });
-
-
 
 const fileFilter = (req: UserRequest, file: Express.Multer.File, cb: FileFilterCallback) => {
     const validTypes = ['jpeg', 'jpg', 'png', 'gif', 'pdf', 'doc', 'docx', 'txt', 'mp4', 'avi', 'mov', 'mp3', 'wav', 'zip', 'rar'];

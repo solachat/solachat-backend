@@ -15,6 +15,7 @@ class User extends Model {
     public avatarHash!: string;
     public rating?: number;
     public online!: boolean;
+    public verified!: boolean;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
 }
@@ -78,6 +79,11 @@ User.init(
             },
         },
         online: {
+            type: DataTypes.BOOLEAN,
+            allowNull: false,
+            defaultValue: false,
+        },
+        verified: {
             type: DataTypes.BOOLEAN,
             allowNull: false,
             defaultValue: false,

@@ -7,7 +7,7 @@ interface ChatAttributes {
     id: number;
     name?: string;
     isGroup: boolean;
-    avatar?: string; // Добавляем поле для аватара
+    avatar?: string;
     createdAt?: Date;
     updatedAt?: Date;
 }
