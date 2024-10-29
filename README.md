@@ -91,7 +91,7 @@ More details are provided in the [Encryption Documentation](./docs/encryption.md
 ## Contact
 For any inquiries or contributions, please reach out via contact@solacoin.org.
 
-24.10.2024 
+28.10.2024 
 Фронт и бэк был настроен с работой Google Cloud. 
 Во время тестирования были выявлены следующие проблемы:
 
