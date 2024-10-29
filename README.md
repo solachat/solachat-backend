@@ -91,3 +91,13 @@ More details are provided in the [Encryption Documentation](./docs/encryption.md
 ## Contact
 For any inquiries or contributions, please reach out via contact@solacoin.org.
 
+24.10.2024 
+Фронт и бэк был настроен с работой Google Cloud. 
+Во время тестирования были выявлены следующие проблемы:
+
+Долгое подключение пользователя к WebSocket
+При отправке файла в чате не сразу отображается 
+При отправке сообщения, надо ждать пару секунд, чтобы обработалось сервером
+Лагает клавиатура в чате при вводе текста 
+Не все функции обновляются через WebSocket
+
