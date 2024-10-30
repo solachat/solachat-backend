@@ -129,6 +129,7 @@ export const getChatsForUser = async (userId: number) => {
                     include: [
                         { model: User, as: 'user', attributes: ['username', 'avatar'] },
                         { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] },
+
                     ],
                 },
             ],
@@ -187,7 +188,6 @@ export const getChatsForUser = async (userId: number) => {
         throw new Error('Не удалось получить чаты для пользователя');
     }
 };
-
 
 const handleFileAttachment = async (attachment: any) => {
     const encryptedFilePath = attachment.filePath;

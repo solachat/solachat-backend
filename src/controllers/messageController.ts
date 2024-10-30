@@ -178,7 +178,6 @@ export const markMessageAsReadController = async (req: UserRequest, res: Respons
 
         broadcastToClients('messageRead', {
             messageId: message.id,
-            chatId: message.chatId,
         });
 
         res.status(200).json({ message: 'Статус прочтения обновлён.' });

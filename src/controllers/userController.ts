@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import {Op} from "sequelize";
 import {getDestination} from "../config/uploadConfig";
+import {getSolanaBalance, getTokenBalance} from "../services/solanaService";
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
@@ -28,7 +29,7 @@ export const registerUser = async (req: Request, res: Response) => {
         const user = await createUser(email, password, publicKey || null, username, realname, null);
         logger.info(`User registered: ${user.email}, Wallet: ${publicKey || 'No public key provided'}`);
 
-        const token = jwt.sign({ id: user.id, email: user.email, username: user.username }, secret, { expiresIn: '24h' });
+        const token = jwt.sign({ id: user.id, email: user.email, username: user.username }, secret, { expiresIn: '48h' });
         res.status(201).json({ token, user });
     } catch (error) {
         const err = error as Error;
@@ -54,7 +55,7 @@ export const loginUser = async (req: Request, res: Response) => {
         user.lastLogin = new Date();
         await user.save();
 
-        const token = jwt.sign({ id: user.id, email: user.email, username: user.username, avatar: user.avatar }, secret, { expiresIn: '24h' });
+        const token = jwt.sign({ id: user.id, email: user.email, username: user.username, avatar: user.avatar }, secret, { expiresIn: '48h' });
         return res.json({ token, user: { username: user.username, email: user.email, lastLogin: user.lastLogin } });
     } catch (error) {
         const err = error as Error;
@@ -91,6 +92,24 @@ export const getProfile = async (req: Request, res: Response) => {
         if (user.shareEmail || isOwner) {
             responseData.email = user.email;
         }
+
+        if (user.public_key) {
+            try {
+                const solanaBalance = await getSolanaBalance(user.public_key);
+                responseData.balance = solanaBalance;
+
+                const tokenBalance = await getTokenBalance(user.public_key);
+                responseData.tokenBalance = tokenBalance;
+            } catch (balanceError) {
+                const err = balanceError as Error;
+                logger.error(`Error fetching balance for public_key ${user.public_key}: ${err.message}`);
+                responseData.balanceError = 'Failed to fetch balances';
+            }
+        } else {
+            responseData.balance = 0;
+            responseData.tokenBalance = 0;
+        }
+
 
         res.json(responseData);
     } catch (error) {

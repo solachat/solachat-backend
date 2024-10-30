@@ -12,6 +12,14 @@ export interface WebSocketUser {
     userId: number;
 }
 
+const broadcastClients = (message: any) => {
+    connectedUsers.forEach(user => {
+        if (user.ws.readyState === WebSocket.OPEN) {
+            user.ws.send(JSON.stringify(message));
+        }
+    });
+};
+
 
 export let wss: WebSocket.Server;
 
@@ -47,6 +55,8 @@ export const initWebSocketServer = (server: any) => {
                 return;
             }
 
+            broadcastClients({ type: 'USER_CONNECTED', userId });
+
             console.log(`User ${user.username} connected with ID ${userId}`);
             connectedUsers.push({ ws, userId });
 
@@ -80,6 +90,8 @@ const removeUserConnection = async (userId: number) => {
         try {
             await updateUserStatus(userId, false);
             console.log(`User status updated to offline for userId: ${userId}`);
+
+            broadcastClients({ type: 'USER_DISCONNECTED', userId });
         } catch (error) {
             console.error(`Failed to update user status to offline for userId: ${userId}`, error);
         }
