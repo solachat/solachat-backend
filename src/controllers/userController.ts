@@ -93,6 +93,10 @@ export const getProfile = async (req: Request, res: Response) => {
             responseData.email = user.email;
         }
 
+        if (user.sharePublicKey || isOwner) {
+            responseData.public_key = user.public_key
+        }
+
         if (user.public_key) {
             try {
                 const solanaBalance = await getSolanaBalance(user.public_key);
@@ -122,7 +126,7 @@ export const getProfile = async (req: Request, res: Response) => {
 
 export const updateProfile = async (req: Request, res: Response) => {
     const { username } = req.params;
-    const { newUsername, realname, email, shareEmail, aboutMe } = req.body;
+    const { newUsername, realname, email, shareEmail, sharePublicKey, aboutMe } = req.body;
 
     try {
         const user = await User.findOne({ where: { username } });
@@ -134,6 +138,7 @@ export const updateProfile = async (req: Request, res: Response) => {
         user.realname = realname || user.realname;
         user.email = email || user.email;
         user.shareEmail = shareEmail !== undefined ? shareEmail : user.shareEmail;
+        user.sharePublicKey = sharePublicKey !== undefined ? sharePublicKey : user.sharePublicKey;
         user.aboutMe = aboutMe || user.aboutMe;
 
         await user.save();
@@ -141,7 +146,7 @@ export const updateProfile = async (req: Request, res: Response) => {
         const token = jwt.sign(
             { id: user.id, email: user.email, username: user.username },
             secret,
-            { expiresIn: '1h' }
+            { expiresIn: '48h' }
         );
 
         res.json({ user: user.toJSON(), token });
@@ -185,7 +190,6 @@ export const updateAvatar = async (req: UserRequest, res: Response) => {
 
         const fileExtension = path.extname(req.file.originalname).slice(1);
         const destinationPath = getDestination(fileExtension);
-
         ensureDirectoryExists(destinationPath);
 
         const uploadedFilePath = path.join(destinationPath, req.file.filename);
@@ -208,9 +212,17 @@ export const updateAvatar = async (req: UserRequest, res: Response) => {
         const avatarUrl = `${req.protocol}://${req.get('host')}/${destinationPath}/${req.file.filename}`;
         user.avatar = avatarUrl;
         user.avatarHash = uploadedFileHash;
+
+        const token = jwt.sign(
+            { id: user.id, email: user.email, username: user.username, avatar: user.avatar },
+            secret,
+            { expiresIn: '48h' }
+        );
+
         await user.save();
 
-        res.json({ message: 'Avatar updated successfully', avatar: user.avatar });
+        logger.info('Successfully updated avatar!');
+        res.json({ message: 'Avatar updated successfully', avatar: user.avatar, token });
     } catch (error) {
         const err = error as Error;
         logger.error(`Failed to update avatar: ${err.message}`);
