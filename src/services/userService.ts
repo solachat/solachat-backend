@@ -1,5 +1,6 @@
 import User from '../models/User';
 import generateAvatar from "../utils/generatorAvatar";
+import UserChats from "../models/UserChats";
 
 export const createUser = async (
     publicKey: string | null,
@@ -33,6 +34,18 @@ export const getUserById = async (userId: number) => {
     } catch (error) {
         console.error('Error fetching user by ID:', error);
         throw new Error('Error fetching user by ID');
+    }
+};
+
+export const getUserChatRole = async (chatId: number, userId: number) => {
+    try {
+        return await UserChats.findOne({
+            where: { chatId, userId },
+            attributes: ['role'],
+        });
+    } catch (error) {
+        console.error(`Ошибка при получении роли пользователя ${userId} в чате ${chatId}:`, error);
+        throw new Error('Ошибка при получении роли пользователя в чате');
     }
 };
 

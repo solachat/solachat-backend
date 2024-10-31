@@ -137,7 +137,6 @@ export const loginUser = async (req: Request, res: Response) => {
     }
 };
 
-
 export const getProfile = async (req: Request, res: Response) => {
     const token = req.headers.authorization?.split(' ')[1];
     if (!token) {

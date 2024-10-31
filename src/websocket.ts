@@ -12,14 +12,13 @@ export interface WebSocketUser {
     userId: number;
 }
 
-const broadcastClients = (message: any) => {
+const broadcastClients = (message: any, filterFn?: (user: WebSocketUser) => boolean) => {
     connectedUsers.forEach(user => {
-        if (user.ws.readyState === WebSocket.OPEN) {
+        if (user.ws.readyState === WebSocket.OPEN && (!filterFn || filterFn(user))) {
             user.ws.send(JSON.stringify(message));
         }
     });
 };
-
 
 export let wss: WebSocket.Server;
 
@@ -97,3 +96,5 @@ const removeUserConnection = async (userId: number) => {
         }
     }
 };
+
+export default broadcastClients;

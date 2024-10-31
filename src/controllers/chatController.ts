@@ -18,7 +18,7 @@ import User from '../models/User';
 import UserChats from '../models/UserChats';
 import Chat from '../models/Chat';
 import {wss} from "../websocket";
-import {getUserById} from "../services/userService";
+import {getUserById, getUserChatRole} from "../services/userService";
 
 const broadcastToClients = (type: string, payload: object) => {
     const messagePayload = JSON.stringify({ type, ...payload });
@@ -92,17 +92,15 @@ export const createPrivateChatController = async (req: Request, res: Response) =
     }
 };
 
-
-
 export const createGroupChatController = async (req: Request, res: Response) => {
-    const { groupName, selectedUsers } = req.body;
+    const { groupName, selectedUsers }: { groupName: string; selectedUsers: number[] } = req.body;
 
     if (!groupName || !selectedUsers || selectedUsers.length === 0) {
         return res.status(400).json({ message: 'Не все обязательные поля заполнены' });
     }
 
     try {
-        const userIds = selectedUsers.map((userId: string) => parseInt(userId, 10));
+        const userIds = selectedUsers.map(Number);
         const creatorId = extractUserIdFromToken(req);
 
         if (!creatorId) {
@@ -116,10 +114,32 @@ export const createGroupChatController = async (req: Request, res: Response) => 
         const avatarUrl = req.file ? `${req.protocol}://${req.get('host')}/uploads/images/${req.file.filename}` : undefined;
 
         const chat = await createGroupChat(userIds, groupName, creatorId, avatarUrl);
+        const chatPlain = chat.get({ plain: true });
 
-        broadcastToClients('groupChatCreated', { chat });
+        const usersWithRoles = await Promise.all(
+            userIds.map(async (userId: number) => {
+                const user = await getUserById(userId);
+                const userChat = await getUserChatRole(chatPlain.id, userId);
+                return user ? {
+                    id: user.id,
+                    username: user.username,
+                    avatar: user.avatar,
+                    online: user.online,
+                    role: userChat?.role,
+                } : null;
+            })
+        );
 
-        res.status(201).json(chat);
+        const validUsers = usersWithRoles.filter(user => user !== null);
+
+        const chatWithUsers = {
+            ...chatPlain,
+            users: validUsers,
+        };
+
+        broadcastToClients('groupChatCreated', { chat: chatWithUsers });
+
+        res.status(201).json(chatWithUsers);
     } catch (error) {
         console.error('Ошибка создания группы:', error);
         res.status(500).json({ message: 'Ошибка создания группы.' });
