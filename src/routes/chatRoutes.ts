@@ -8,7 +8,9 @@ import {
     deleteChatController,
     addUsersToChatController,
     kickUserController,
-    assignRoleController, updateChatSettingsController
+    assignRoleController,
+    updateChatSettingsController,
+    createFavoriteChatController
 } from '../controllers/chatController';
 import { authenticateToken } from '../middleware/authMiddleware';
 import {upload} from "../config/uploadConfig";
@@ -17,6 +19,7 @@ const router = Router();
 
 router.post('/private', authenticateToken, createPrivateChatController);
 router.post('/group', authenticateToken, upload.single('avatar'), createGroupChatController);
+router.post('/chats/favorite', authenticateToken, createFavoriteChatController);
 
 router.post('/chats', authenticateToken, getChatsController);
 

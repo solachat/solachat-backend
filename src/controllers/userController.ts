@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import {createUser, checkPassword, updateUserStatus} from '../services/userService';
+import {createUser, updateUserStatus} from '../services/userService';
 import { UserRequest } from '../types/types';
 import User from '../models/User';
 import logger from '../utils/logger';
@@ -10,59 +10,133 @@ import path from 'path';
 import {Op} from "sequelize";
 import {getDestination} from "../config/uploadConfig";
 import {getSolanaBalance, getTokenBalance} from "../services/solanaService";
+import nacl from 'tweetnacl';
+import base58 from 'bs58';
+import { authenticator } from 'otplib';
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
 export const registerUser = async (req: Request, res: Response) => {
-    const { email, password, username, realname, wallet: publicKey } = req.body;
+    const { username, wallet: publicKey, message, signature } = req.body;
 
-    console.log('Registration Data:', { email, password, username, realname, publicKey });
+    console.log('Registration Data:', { username, publicKey, message });
 
     try {
-        if (publicKey) {
-            const existingUser = await User.findOne({ where: { public_key: publicKey } });
-            if (existingUser) {
-                return res.status(400).json({ message: 'Public key is already registered' });
-            }
+        if (!publicKey || !message || !signature) {
+            return res.status(400).json({ message: 'Public key, message, and signature are required' });
         }
 
-        const user = await createUser(email, password, publicKey || null, username, realname, null);
-        logger.info(`User registered: ${user.email}, Wallet: ${publicKey || 'No public key provided'}`);
+        const existingUser = await User.findOne({ where: { public_key: publicKey } });
+        if (existingUser) {
+            return res.status(400).json({ message: 'Public key is already registered' });
+        }
 
-        const token = jwt.sign({ id: user.id, email: user.email, username: user.username }, secret, { expiresIn: '48h' });
+        const existingUsername = await User.findOne({ where: { username } });
+        if (existingUsername) {
+            return res.status(400).json({ message: 'Username is already taken' });
+        }
+
+        const decodedSignature = Uint8Array.from(signature);
+        const decodedPublicKey = base58.decode(publicKey);
+
+        const isValidSignature = nacl.sign.detached.verify(
+            new TextEncoder().encode(message),
+            decodedSignature,
+            decodedPublicKey
+        );
+
+        if (!isValidSignature) {
+            return res.status(400).json({ message: 'Invalid signature' });
+        }
+
+        const user = await createUser(publicKey, username, null);
+        console.info(`User registered: ${user.username}, Wallet: ${publicKey}`);
+
+        const secret = process.env.JWT_SECRET;
+        if (!secret) {
+            throw new Error('JWT_SECRET is not defined');
+        }
+
+        const token = jwt.sign(
+            { id: user.id, publicKey: user.public_key, username: user.username, avatar: user.avatar },
+            secret,
+            { expiresIn: '48h' }
+        );
+
         res.status(201).json({ token, user });
     } catch (error) {
-        const err = error as Error;
-        logger.error(`Registration failed: ${err.message}`);
-        res.status(500).json({ error: err.message });
+        console.error(`Registration failed: ${(error as Error).message}`);
+        res.status(500).json({ error: (error as Error).message });
     }
 };
 
 export const loginUser = async (req: Request, res: Response) => {
-    const { email, password } = req.body;
+    const { walletAddress, message, signature, totpCode } = req.body;
+
+    console.log('Login Data:', { walletAddress, message, totpCode });
 
     try {
-        const user = await User.findOne({ where: { email } });
-        if (!user) {
-            return res.status(401).json({ message: 'Invalid email or password' });
+        if (totpCode) {
+            const user = await User.findOne({ where: { totpSecret: { [Op.ne]: null } } });
+            if (!user) {
+                return res.status(404).json({ message: 'User not found or TOTP not set' });
+            }
+
+            const isValid = authenticator.verify({ token: totpCode, secret: user.totpSecret || '' });
+            console.log(`Verifying TOTP: ${totpCode} - Result: ${isValid}`);
+
+            if (!isValid) {
+                return res.status(400).json({ message: 'Invalid TOTP code' });
+            }
+
+            const token = jwt.sign(
+                { id: user.id, publicKey: user.public_key, username: user.username, avatar: user.avatar },
+                secret,
+                { expiresIn: '48h' }
+            );
+
+            return res.json({ token, user: { username: user.username, publicKey: user.public_key } });
         }
 
-        const isPasswordValid = await checkPassword(user.id, password);
-        if (!isPasswordValid) {
-            return res.status(401).json({ message: 'Invalid email or password' });
+        if (!walletAddress || !message || !signature) {
+            return res.status(400).json({ message: 'Public key, message, and signature are required' });
+        }
+
+        const user = await User.findOne({ where: { public_key: walletAddress } });
+        if (!user) {
+            return res.status(401).json({ message: 'User not found' });
+        }
+
+        const decodedSignature = Uint8Array.from(signature);
+        const decodedPublicKey = base58.decode(walletAddress);
+
+        const isValidSignature = nacl.sign.detached.verify(
+            new TextEncoder().encode(message),
+            decodedSignature,
+            decodedPublicKey
+        );
+
+        if (!isValidSignature) {
+            return res.status(401).json({ message: 'Invalid signature' });
         }
 
         user.lastLogin = new Date();
         await user.save();
 
-        const token = jwt.sign({ id: user.id, email: user.email, username: user.username, avatar: user.avatar }, secret, { expiresIn: '48h' });
-        return res.json({ token, user: { username: user.username, email: user.email, lastLogin: user.lastLogin } });
+        const token = jwt.sign(
+            { id: user.id, publicKey: user.public_key, username: user.username, avatar: user.avatar },
+            secret,
+            { expiresIn: '48h' }
+        );
+
+        return res.json({ token, user: { username: user.username, publicKey: user.public_key, avatar: user.avatar } });
     } catch (error) {
         const err = error as Error;
         logger.error(`Login failed: ${err.message}`);
         return res.status(500).json({ error: err.message });
     }
 };
+
 
 export const getProfile = async (req: Request, res: Response) => {
     const token = req.headers.authorization?.split(' ')[1];
@@ -88,10 +162,6 @@ export const getProfile = async (req: Request, res: Response) => {
             isOwner,
             aboutMe: user.aboutMe,
         };
-
-        if (user.shareEmail || isOwner) {
-            responseData.email = user.email;
-        }
 
         if (user.sharePublicKey || isOwner) {
             responseData.public_key = user.public_key
@@ -123,10 +193,9 @@ export const getProfile = async (req: Request, res: Response) => {
     }
 };
 
-
 export const updateProfile = async (req: Request, res: Response) => {
     const { username } = req.params;
-    const { newUsername, realname, email, shareEmail, sharePublicKey, aboutMe } = req.body;
+    const { newUsername, sharePublicKey, aboutMe } = req.body;
 
     try {
         const user = await User.findOne({ where: { username } });
@@ -134,17 +203,21 @@ export const updateProfile = async (req: Request, res: Response) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
+        if (newUsername && newUsername !== user.username) {
+            const existingUser = await User.findOne({ where: { username: newUsername } });
+            if (existingUser) {
+                return res.status(409).json({ error: 'Username is already taken' });
+            }
+        }
+
         user.username = newUsername || user.username;
-        user.realname = realname || user.realname;
-        user.email = email || user.email;
-        user.shareEmail = shareEmail !== undefined ? shareEmail : user.shareEmail;
         user.sharePublicKey = sharePublicKey !== undefined ? sharePublicKey : user.sharePublicKey;
-        user.aboutMe = aboutMe || user.aboutMe;
+        user.aboutMe = aboutMe !== undefined ? aboutMe : user.aboutMe;
 
         await user.save();
 
         const token = jwt.sign(
-            { id: user.id, email: user.email, username: user.username },
+            { id: user.id, username: user.username },
             secret,
             { expiresIn: '48h' }
         );
@@ -153,7 +226,7 @@ export const updateProfile = async (req: Request, res: Response) => {
     } catch (error) {
         const err = error as Error;
         logger.error(`Profile update failed: ${err.message}`);
-        res.status(500).json({ error: 'Error updating profile' });
+        res.status(500).json({ error: 'Error updating profile', message: err.message });
     }
 };
 
@@ -214,7 +287,7 @@ export const updateAvatar = async (req: UserRequest, res: Response) => {
         user.avatarHash = uploadedFileHash;
 
         const token = jwt.sign(
-            { id: user.id, email: user.email, username: user.username, avatar: user.avatar },
+            { id: user.id, username: user.username, avatar: user.avatar },
             secret,
             { expiresIn: '48h' }
         );
@@ -267,10 +340,9 @@ export const searchUser = async (req: Request, res: Response) => {
             where: {
                 [Op.or]: [
                     { username: { [Op.iLike]: `%${searchTerm}%` } },
-                    { realname: { [Op.iLike]: `%${searchTerm}%` } },
                 ],
             },
-            attributes: ['id', 'realname', 'username', 'avatar', 'online', "verified"],
+            attributes: ['id', 'username', 'avatar', 'online', "verified"],
         });
 
         res.status(200).json(users);
@@ -328,3 +400,50 @@ export const attachPublicKey = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+
+export const setupTotp = async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+
+    try {
+        const user = await User.findByPk(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        console.log('Using secret:', user.totpSecret);
+
+        const secret = authenticator.generateSecret();
+        user.totpSecret = secret;
+        await user.save();
+
+        const otpauthUrl = authenticator.keyuri(user.username, 'SolaCoin', secret);
+        res.json({ otpauthUrl, secret });
+    } catch (error) {
+        const err = error as Error;
+        res.status(500).json({ message: 'Failed to setup TOTP', error: err.message });
+    }
+}
+
+export const verifyTotp = async (req: Request, res: Response) => {
+    const userId = req.user?.id;
+    const { totpCode } = req.body;
+
+    try {
+        const user = await User.findByPk(userId);
+        if (!user || !user.totpSecret) {
+            return res.status(404).json({ success: false, message: 'User or TOTP setup not found' });
+        }
+
+        const isValid = authenticator.verify({ token: totpCode, secret: user.totpSecret });
+
+        if (isValid) {
+            return res.status(200).json({ success: true, message: 'TOTP verified successfully' });
+        } else {
+            return res.status(400).json({ success: false, message: 'Invalid TOTP code' });
+        }
+    } catch (error) {
+        const err = error as Error;
+        res.status(500).json({ success: false, message: 'Error verifying TOTP', error: err.message });
+    }
+};
+

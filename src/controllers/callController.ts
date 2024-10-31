@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { initiateCall, answerCall, rejectCall, initiateGroupCall, answerGroupCall, rejectGroupCall } from '../services/callService';
 import { wss } from '../websocket';
-import { getUserById } from '../../../messenger/user-service/src/services/userService';
+import { getUserById } from '../services/userService';
 
 
 const broadcastToClients = (type: string, payload: object) => {
@@ -49,7 +49,7 @@ export const initiateCallHandler = async (req: Request, res: Response) => {
 };
 
 export const answerCallHandler = async (req: Request, res: Response) => {
-    const { fromUserId, toUserId, callId, offer } = req.body; // Добавляем offer
+    const { fromUserId, toUserId, callId, offer } = req.body;
 
     try {
         const callAnswered = await answerCall(fromUserId, toUserId, callId, offer);

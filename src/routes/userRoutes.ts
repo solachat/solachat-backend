@@ -5,7 +5,7 @@ import {
     getProfile,
     updateProfile,
     updateUserStatusController,
-    updateAvatar, getUserAvatars, searchUser, attachPublicKey
+    updateAvatar, getUserAvatars, searchUser, attachPublicKey, setupTotp, verifyTotp
 } from '../controllers/userController';
 import {authenticateToken} from "../middleware/authMiddleware";
 import {upload} from "../config/uploadConfig";
@@ -16,6 +16,8 @@ const router = Router();
 router.post('/register', registerUser);
 router.post('/login', loginUser);
 router.post('/update-status', updateUserStatusController);
+router.post('/setup-totp', authenticateToken, setupTotp);
+router.post('/verify-totp', authenticateToken, verifyTotp);
 
 router.get('/profile', getProfile);
 router.get('/:username/avatars', getUserAvatars);

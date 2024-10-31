@@ -30,6 +30,22 @@ const upsertUserChat = async (chatId: number, userId: number, role: 'owner' | 'm
 
 export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     try {
+        if (user1Id === user2Id) {
+            const favoriteChat = await Chat.findOne({
+                where: { isGroup: false },
+                include: [
+                    {
+                        model: User,
+                        as: 'users',
+                        where: { id: user1Id },
+                        through: { attributes: [] },
+                    },
+                ],
+            });
+
+            if (favoriteChat) return favoriteChat;
+        }
+
         const chats = await Chat.findAll({
             where: { isGroup: false },
             include: [{
@@ -47,7 +63,7 @@ export const createPrivateChat = async (user1Id: number, user2Id: number) => {
 
         if (existingChat) return existingChat;
 
-        const newChat = await Chat.create({ isGroup: false });
+        const newChat = await Chat.create({ isGroup: false, isFavorite: false });
         const users = await findUsersByIds([user1Id, user2Id]);
         await newChat.addUsers(users);
 
@@ -57,9 +73,10 @@ export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     }
 };
 
+
 export const createGroupChat = async (userIds: number[], chatName: string, creatorId: number, avatar?: string) => {
     try {
-        const chat = await Chat.create({ name: chatName, isGroup: true, avatar });
+        const chat = await Chat.create({ name: chatName, isGroup: true, avatar, isFavorite: false });
         const users = await findUsersByIds(userIds);
         await chat.addUsers(users);
 
@@ -78,7 +95,7 @@ export const getChatById = async (chatId: number) => {
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'realname', 'avatar', 'online', 'verified'],
+                    attributes: ['id', 'username', 'avatar', 'online', 'verified'],
                     through: { attributes: [] }
                 },
                 {
@@ -117,7 +134,7 @@ export const getChatsForUser = async (userId: number) => {
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'realname', 'avatar', 'online', 'verified'],
+                    attributes: ['id', 'username', 'avatar', 'online', 'verified'],
                     through: {
                         attributes: ['role'],
                     },
@@ -125,7 +142,7 @@ export const getChatsForUser = async (userId: number) => {
                 {
                     model: Message,
                     as: 'messages',
-                    attributes: ['id', 'content', 'fileId', 'createdAt', 'userId', 'isEdited', 'unread', 'isRead' ],
+                    attributes: ['id', 'content', 'fileId', 'createdAt', 'userId', 'isEdited', 'unread', 'isRead'],
                     include: [
                         { model: User, as: 'user', attributes: ['username', 'avatar'] },
                         { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] },
@@ -168,11 +185,10 @@ export const getChatsForUser = async (userId: number) => {
                 ...chat.toJSON(),
                 chatName: chat.isGroup
                     ? chat.name
-                    : chat.users?.find(u => u.id !== userId)?.realname || 'Unknown',
+                    : chat.users?.find(u => u.id !== userId)?.username || 'Unknown',
                 users: (chat.users || []).map(user => ({
                     id: user.id,
                     username: user.username,
-                    realname: user.realname,
                     avatar: user.avatar,
                     online: user.online,
                     verified: user.verified,
@@ -287,7 +303,7 @@ export const getChatWithMessages = async (chatId: number, userId: number) => {
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'realname', 'avatar', 'verified'],
+                    attributes: ['id', 'username', 'avatar', 'verified'],
                     through: { attributes: [] },
                     where: { id: userId }
                 },

@@ -10,6 +10,7 @@ interface ChatAttributes {
     avatar?: string;
     createdAt?: Date;
     updatedAt?: Date;
+    isFavorite: boolean
 }
 
 interface ChatCreationAttributes extends Optional<ChatAttributes, 'id'> {}
@@ -21,6 +22,7 @@ class Chat extends Model<ChatAttributes, ChatCreationAttributes> implements Chat
     public avatar?: string;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
+    public isFavorite!: boolean;
 
     public users?: User[];
     public messages?: Message[];
@@ -43,6 +45,10 @@ Chat.init(
         isGroup: {
             type: DataTypes.BOOLEAN,
             allowNull: false,
+            defaultValue: false,
+        },
+        isFavorite: {
+            type: DataTypes.BOOLEAN,
             defaultValue: false,
         },
         avatar: {

@@ -2,7 +2,6 @@ import { connectedUsers, WebSocketUser } from '../websocket';
 import WebSocket from 'ws';
 import Call from '../models/Call';
 
-// Initiating an individual call
 export const initiateCall = async (fromUserId: number, toUserId: number) => {
     const call = await Call.create({
         fromUserId,

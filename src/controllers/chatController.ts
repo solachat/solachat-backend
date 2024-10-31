@@ -71,14 +71,12 @@ export const createPrivateChatController = async (req: Request, res: Response) =
                 {
                     id: user1.id,
                     username: user1.username,
-                    realname: user1.realname,
                     avatar: user1.avatar,
                     online: user1.online
                 },
                 {
                     id: user2.id,
                     username: user2.username,
-                    realname: user2.realname,
                     avatar: user2.avatar,
                     online: user2.online
                 }
@@ -256,7 +254,6 @@ export const kickUserController = async (req: Request, res: Response) => {
 
         await kickUserFromChat(Number(chatId), userIdToKick, userId!);
 
-        // Уведомляем всех участников через WebSocket
         broadcastToClients('userKickedFromChat', { chatId, userIdToKick });
 
         res.status(200).json({ message: 'Пользователь успешно удалён.' });
@@ -292,12 +289,50 @@ export const updateChatSettingsController = async (req: Request, res: Response) 
 
         const updatedChat = await updateChatSettings(Number(chatId), req.user!.id, groupName, avatarUrl);
 
-        // Уведомляем всех участников через WebSocket
         broadcastToClients('chatSettingsUpdated', { chat: updatedChat });
 
         res.status(200).json({ message: 'Настройки чата успешно обновлены.' });
     } catch (error) {
         console.error('Ошибка обновления настроек чата:', error);
         res.status(500).json({ message: 'Ошибка обновления настроек чата.' });
+    }
+};
+
+export const createFavoriteChatController = async (req: Request, res: Response) => {
+    const userId = extractUserIdFromToken(req);
+
+    if (!userId) {
+        return res.status(401).json({ message: 'Не авторизован' });
+    }
+
+    try {
+        const existingFavoriteChat = await Chat.findOne({
+            where: { isFavorite: true, isGroup: false },
+            include: [{
+                model: User,
+                as: 'users',
+                where: { id: userId },
+                through: { attributes: [] },
+            }],
+        });
+
+        if (existingFavoriteChat) {
+            return res.status(200).json(existingFavoriteChat);
+        }
+
+        const newFavoriteChat = await Chat.create({ isFavorite: true, isGroup: false });
+
+        await UserChats.create({
+            userId,
+            chatId: newFavoriteChat.id,
+            role: 'owner',
+        });
+
+        broadcastToClients('favoriteChatUpdated', { chat: newFavoriteChat });
+
+        res.status(201).json(newFavoriteChat);
+    } catch (error) {
+        console.error('Ошибка создания избранного чата:', error);
+        res.status(500).json({ message: 'Ошибка создания избранного чата.' });
     }
 };

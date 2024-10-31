@@ -1,7 +1,7 @@
 import WebSocket from 'ws';
 import jwt from 'jsonwebtoken';
 import { Socket } from 'net';
-import { getUserById } from '../../messenger/user-service/src/services/userService';
+import { getUserById } from './services/userService';
 import { updateUserStatus } from './services/userService';
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';

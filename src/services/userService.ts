@@ -1,17 +1,11 @@
 import User from '../models/User';
 import generateAvatar from "../utils/generatorAvatar";
-import { comparePassword, hashPassword } from '../encryption/bcryptEncryption';
 
 export const createUser = async (
-    email: string,
-    password: string,
     publicKey: string | null,
     username: string,
-    realname: string,
-    avatar: string | null
+    avatar: string | null = null
 ) => {
-    const hashedPassword = await hashPassword(password);
-
     let avatarUrl = avatar;
     if (!avatarUrl) {
         avatarUrl = await generateAvatar(username);
@@ -19,25 +13,14 @@ export const createUser = async (
     }
 
     const user = await User.create({
-        email,
-        password: hashedPassword,
         public_key: publicKey || null,
         username,
-        realname,
         avatar: avatarUrl,
         lastLogin: new Date(),
     });
 
     console.log('Creating user with public key:', publicKey);
     return user;
-};
-
-export const checkPassword = async (userId: number, password: string): Promise<boolean> => {
-    const user = await User.findByPk(userId);
-    if (!user) throw new Error('User not found');
-
-    const isPasswordValid = await comparePassword(password, user.password);
-    return isPasswordValid;
 };
 
 export const getUserById = async (userId: number) => {
@@ -66,6 +49,9 @@ export const updateUserStatus = async (userId: number, isOnline: boolean) => {
         console.log(`User ${user.username} found, current status: ${user.online}`);
 
         user.online = isOnline;
+        if (!isOnline) {
+            user.lastOnline = new Date();
+        }
 
         await user.save();
         console.log(`User ${user.username} status updated successfully to ${user.online}`);
@@ -74,3 +60,4 @@ export const updateUserStatus = async (userId: number, isOnline: boolean) => {
         throw error;
     }
 };
+

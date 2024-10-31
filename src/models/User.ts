@@ -4,19 +4,17 @@ import sequelize from '../config/db';
 class User extends Model {
     public id!: number;
     public public_key?: string;
-    public email!: string;
-    public password!: string;
     public username!: string;
-    public realname!: string;
     public aboutMe?: string;
     public lastLogin!: Date;
-    public shareEmail!: boolean;
     public sharePublicKey!: boolean;
     public avatar?: string;
     public avatarHash!: string;
     public rating?: number;
     public online!: boolean;
     public verified!: boolean;
+    public lastOnline!: Date | null;
+    public totpSecret?: string;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
 }
@@ -28,26 +26,10 @@ User.init(
             allowNull: true,
             unique: true,
         },
-        email: {
-            type: DataTypes.STRING,
-            allowNull: false,
-            unique: true,
-            validate: {
-                isEmail: true,
-            },
-        },
-        password: {
-            type: DataTypes.STRING,
-            allowNull: false,
-        },
         username: {
             type: DataTypes.STRING,
             allowNull: false,
             unique: true,
-        },
-        realname: {
-            type: DataTypes.STRING,
-            allowNull: false,
         },
         aboutMe: {
             type: DataTypes.STRING,
@@ -58,10 +40,9 @@ User.init(
             allowNull: false,
             defaultValue: DataTypes.NOW,
         },
-        shareEmail: {
-            type: DataTypes.BOOLEAN,
-            allowNull: false,
-            defaultValue: false,
+        lastOnline: {
+            type: DataTypes.DATE,
+            allowNull: true,
         },
         sharePublicKey: {
             type: DataTypes.BOOLEAN,
@@ -83,6 +64,10 @@ User.init(
             validate: {
                 isFloat: true,
             },
+        },
+        totpSecret: {
+            type: DataTypes.STRING,
+            allowNull: true,
         },
         online: {
             type: DataTypes.BOOLEAN,
