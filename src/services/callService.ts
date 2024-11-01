@@ -27,13 +27,11 @@ export const answerCall = async (fromUserId: number, toUserId: number, callId: n
     }
 
     try {
-        // Обновляем статус звонка
         await Call.update(
             { status: 'accepted' },
             { where: { id: callId, fromUserId, toUserId, status: 'initiated' } }
         );
 
-        // Сообщаем инициатору, что звонок принят
         const messageToCaller = JSON.stringify({
             type: 'callAccepted',
             fromUserId,

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import {createUser, updateUserStatus} from '../services/userService';
+import { createUser, updateUserStatus } from '../services/userService';
 import { UserRequest } from '../types/types';
 import User from '../models/User';
 import logger from '../utils/logger';
@@ -7,12 +7,15 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import {Op} from "sequelize";
-import {getDestination} from "../config/uploadConfig";
-import {getSolanaBalance, getTokenBalance} from "../services/solanaService";
+import { Op } from "sequelize";
+import { getDestination } from "../config/uploadConfig";
+import { getSolanaBalance, getTokenBalance } from "../services/solanaService";
 import nacl from 'tweetnacl';
 import base58 from 'bs58';
 import { authenticator } from 'otplib';
+import { ethers } from 'ethers';
+import { isSolanaWallet, isEthereumWallet } from '../utils/walletUtils';
+import {getEthereumBalance} from "../services/ethereumService";
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
@@ -20,6 +23,7 @@ export const registerUser = async (req: Request, res: Response) => {
     const { username, wallet: publicKey, message, signature } = req.body;
 
     console.log('Registration Data:', { username, publicKey, message });
+    console.log('Signature received:', signature, 'Length:', signature.length);
 
     try {
         if (!publicKey || !message || !signature) {
@@ -36,14 +40,25 @@ export const registerUser = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Username is already taken' });
         }
 
-        const decodedSignature = Uint8Array.from(signature);
-        const decodedPublicKey = base58.decode(publicKey);
+        let isValidSignature = false;
 
-        const isValidSignature = nacl.sign.detached.verify(
-            new TextEncoder().encode(message),
-            decodedSignature,
-            decodedPublicKey
-        );
+        if (isSolanaWallet(publicKey)) {
+            const decodedSignature = new Uint8Array(Buffer.from(signature, 'base64'));
+            const decodedPublicKey = base58.decode(publicKey);
+
+            isValidSignature = nacl.sign.detached.verify(
+                new TextEncoder().encode(message),
+                decodedSignature,
+                decodedPublicKey
+            );
+        } else if (isEthereumWallet(publicKey)) {
+            const messageHash = ethers.utils.hashMessage(message);
+            const recoveredAddress = ethers.utils.recoverAddress(messageHash, signature);
+
+            isValidSignature = recoveredAddress.toLowerCase() === publicKey.toLowerCase();
+        } else {
+            return res.status(400).json({ message: 'Unsupported wallet format' });
+        }
 
         if (!isValidSignature) {
             return res.status(400).json({ message: 'Invalid signature' });
@@ -52,14 +67,9 @@ export const registerUser = async (req: Request, res: Response) => {
         const user = await createUser(publicKey, username, null);
         console.info(`User registered: ${user.username}, Wallet: ${publicKey}`);
 
-        const secret = process.env.JWT_SECRET;
-        if (!secret) {
-            throw new Error('JWT_SECRET is not defined');
-        }
-
         const token = jwt.sign(
             { id: user.id, publicKey: user.public_key, username: user.username, avatar: user.avatar },
-            secret,
+            process.env.JWT_SECRET || 'your_default_secret',
             { expiresIn: '48h' }
         );
 
@@ -107,14 +117,25 @@ export const loginUser = async (req: Request, res: Response) => {
             return res.status(401).json({ message: 'User not found' });
         }
 
-        const decodedSignature = Uint8Array.from(signature);
-        const decodedPublicKey = base58.decode(walletAddress);
+        let isValidSignature = false;
 
-        const isValidSignature = nacl.sign.detached.verify(
-            new TextEncoder().encode(message),
-            decodedSignature,
-            decodedPublicKey
-        );
+        if (isSolanaWallet(walletAddress)) {
+            const decodedSignature = Uint8Array.from(signature);
+            const decodedPublicKey = base58.decode(walletAddress);
+
+            isValidSignature = nacl.sign.detached.verify(
+                new TextEncoder().encode(message),
+                decodedSignature,
+                decodedPublicKey
+            );
+        } else if (isEthereumWallet(walletAddress)) {
+            const messageHash = ethers.utils.hashMessage(message);
+            const recoveredAddress = ethers.utils.recoverAddress(messageHash, signature);
+
+            isValidSignature = recoveredAddress.toLowerCase() === walletAddress.toLowerCase();
+        } else {
+            return res.status(400).json({ message: 'Unsupported wallet format' });
+        }
 
         if (!isValidSignature) {
             return res.status(401).json({ message: 'Invalid signature' });
@@ -152,7 +173,6 @@ export const getProfile = async (req: Request, res: Response) => {
         }
 
         const isOwner = decoded.username === user.username;
-
         const { password, ...safeUserData } = user.dataValues;
 
         const responseData: any = {
@@ -160,29 +180,33 @@ export const getProfile = async (req: Request, res: Response) => {
             avatar: user.avatar,
             isOwner,
             aboutMe: user.aboutMe,
+            public_key: user.sharePublicKey || isOwner ? user.public_key : undefined,
+            balance: 0,
+            tokenBalance: 0,
+            ethereumBalance: 0,
         };
 
-        if (user.sharePublicKey || isOwner) {
-            responseData.public_key = user.public_key
-        }
-
         if (user.public_key) {
-            try {
-                const solanaBalance = await getSolanaBalance(user.public_key);
-                responseData.balance = solanaBalance;
-
-                const tokenBalance = await getTokenBalance(user.public_key);
-                responseData.tokenBalance = tokenBalance;
-            } catch (balanceError) {
-                const err = balanceError as Error;
-                logger.error(`Error fetching balance for public_key ${user.public_key}: ${err.message}`);
-                responseData.balanceError = 'Failed to fetch balances';
+            if (isSolanaWallet(user.public_key)) {
+                try {
+                    responseData.balance = await getSolanaBalance(user.public_key) || 0;
+                    responseData.tokenBalance = await getTokenBalance(user.public_key) || 0;
+                } catch (error) {
+                    const err = error as Error;
+                    logger.error(`Error fetching Solana balances for ${user.public_key}: ${err.message}`);
+                }
             }
-        } else {
-            responseData.balance = 0;
-            responseData.tokenBalance = 0;
+            else if (isEthereumWallet(user.public_key)) {
+                try {
+                    responseData.ethereumBalance = await getEthereumBalance(user.public_key) || 0;
+                } catch (error) {
+                    const err = error as Error;
+                    logger.error(`Error fetching Ethereum balance for ${user.public_key}: ${err.message}`);
+                }
+            } else {
+                responseData.balanceError = 'Unsupported wallet format';
+            }
         }
-
 
         res.json(responseData);
     } catch (error) {
@@ -191,6 +215,7 @@ export const getProfile = async (req: Request, res: Response) => {
         return res.status(401).json({ message: 'Invalid token' });
     }
 };
+
 
 export const updateProfile = async (req: Request, res: Response) => {
     const { username } = req.params;

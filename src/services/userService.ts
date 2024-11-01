@@ -18,6 +18,7 @@ export const createUser = async (
         username,
         avatar: avatarUrl,
         lastLogin: new Date(),
+        lastOnline: new Date(),
     });
 
     console.log('Creating user with public key:', publicKey);
