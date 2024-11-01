@@ -7,6 +7,7 @@ import file from "../models/File";
 import fs from "fs";
 import UserChats from "../models/UserChats";
 import { decryptFile } from '../encryption/fileEncryption';
+import path from "path";
 
 const findUsersByIds = async (userIds: number[]) => {
     const users = await User.findAll({ where: { id: userIds } });
@@ -135,9 +136,7 @@ export const getChatsForUser = async (userId: number) => {
                     model: User,
                     as: 'users',
                     attributes: ['id', 'username', 'avatar', 'online', 'verified'],
-                    through: {
-                        attributes: ['role'],
-                    },
+                    through: { attributes: ['role'] },
                 },
                 {
                     model: Message,
@@ -146,7 +145,6 @@ export const getChatsForUser = async (userId: number) => {
                     include: [
                         { model: User, as: 'user', attributes: ['username', 'avatar'] },
                         { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] },
-
                     ],
                 },
             ],
@@ -167,18 +165,18 @@ export const getChatsForUser = async (userId: number) => {
                         let decryptedContent = '';
                         let attachment = null;
 
-                    try {
-                        decryptedContent = decryptMessage(JSON.parse(message.content));
-                    } catch (error) {
-                        console.error('Ошибка расшифровки сообщения:', error);
-                    }
+                        try {
+                            decryptedContent = decryptMessage(JSON.parse(message.content));
+                        } catch (error) {
+                            console.error('Ошибка расшифровки сообщения:', error);
+                        }
 
-                    if (message.attachment) {
-                        attachment = await handleFileAttachment(message.attachment);
-                    }
+                        if (message.attachment) {
+                            attachment = await handleFileAttachment(message.attachment);
+                        }
 
-                    return { ...message.toJSON(), content: decryptedContent, attachment };
-                }))
+                        return { ...message.toJSON(), content: decryptedContent, attachment };
+                    }))
                 : [];
 
             return {
@@ -207,19 +205,26 @@ export const getChatsForUser = async (userId: number) => {
 
 const handleFileAttachment = async (attachment: any) => {
     const encryptedFilePath = attachment.filePath;
-    const metadataPath = `${encryptedFilePath}.meta`;
+    const decryptedFilePath = encryptedFilePath.replace('.enc', '');
 
-    if (fs.existsSync(metadataPath)) {
-        const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
-        const decryptedFilePath = encryptedFilePath.replace('.enc', '');
+    if (fs.existsSync(encryptedFilePath)) {
+        const encryptedBuffer = fs.readFileSync(encryptedFilePath);
 
-        await decryptFile(encryptedFilePath);
-        return { fileName: metadata.originalFileName, filePath: decryptedFilePath };
+        // Расшифровываем файл
+        const decryptedBuffer = await decryptFile(encryptedBuffer);
+
+        // Сохраняем расшифрованный файл на диск
+        fs.writeFileSync(decryptedFilePath, decryptedBuffer);
+
+        // Удаляем зашифрованный файл после расшифровки
+        fs.unlinkSync(encryptedFilePath);
+
+        return { fileName: path.basename(decryptedFilePath), filePath: decryptedFilePath };
     }
 
+    // Если зашифрованный файл не найден, возвращаем исходные данные
     return { fileName: attachment.fileName, filePath: attachment.filePath };
 };
-
 export const deleteChat = async (chatId: number, userId: number, userRole: string, isGroup: boolean) => {
     try {
         if (isGroup && userRole === 'member') {

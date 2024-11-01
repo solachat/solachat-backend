@@ -20,7 +20,7 @@ export const uploadFileController = (req: Request, res: Response) => {
         const encryptedFilePath = `${originalFilePath}.enc`;
 
         try {
-            await encryptFile(originalFilePath);
+            await encryptFile(await fs.promises.readFile(originalFilePath));
             console.log(`Файл успешно зашифрован: ${encryptedFilePath}`);
 
             fs.unlinkSync(originalFilePath);
@@ -43,6 +43,7 @@ export const downloadFileController = async (req: Request, res: Response) => {
     try {
         const encryptedFilePath = path.join('uploads', fileName);
         const tempDecryptedFilePath = path.join(__dirname, 'temp', fileName.replace('.enc', ''));
+        const metadataPath = `${encryptedFilePath}.meta`;
 
         if (!fs.existsSync(encryptedFilePath)) {
             return res.status(404).send('Файл не найден.');
@@ -52,7 +53,8 @@ export const downloadFileController = async (req: Request, res: Response) => {
             fs.mkdirSync(path.join(__dirname, 'temp'), { recursive: true });
         }
 
-        await decryptFile(encryptedFilePath);
+        const encryptedBuffer = await fs.promises.readFile(encryptedFilePath);
+        await decryptFile(encryptedBuffer);
 
         const originalFileName = fileName.replace('.enc', '');
 
