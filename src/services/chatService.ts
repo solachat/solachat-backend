@@ -96,7 +96,7 @@ export const getChatById = async (chatId: number) => {
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'avatar', 'online', 'verified'],
+                    attributes: ['id', 'username', 'public_key', 'avatar', 'online', 'verified'],
                     through: { attributes: [] }
                 },
                 {
@@ -107,7 +107,7 @@ export const getChatById = async (chatId: number) => {
                         {
                             model: User,
                             as: 'user',
-                            attributes: ['id', 'username', 'avatar'],
+                            attributes: ['id', 'username', 'public_key', 'avatar'],
                         }
                     ]
                 }
@@ -135,7 +135,7 @@ export const getChatsForUser = async (userId: number) => {
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'avatar', 'online', 'verified'],
+                    attributes: ['id', 'username', 'public_key', 'avatar', 'online', 'verified'],
                     through: { attributes: ['role'] },
                 },
                 {
@@ -143,7 +143,7 @@ export const getChatsForUser = async (userId: number) => {
                     as: 'messages',
                     attributes: ['id', 'content', 'fileId', 'createdAt', 'userId', 'isEdited', 'unread', 'isRead'],
                     include: [
-                        { model: User, as: 'user', attributes: ['username', 'avatar'] },
+                        { model: User, as: 'user', attributes: ['username', 'public_key', 'avatar'] },
                         { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] },
                     ],
                 },
@@ -186,7 +186,7 @@ export const getChatsForUser = async (userId: number) => {
                     : chat.users?.find(u => u.id !== userId)?.username || 'Unknown',
                 users: (chat.users || []).map(user => ({
                     id: user.id,
-                    username: user.username,
+                    public_key: user.public_key,
                     avatar: user.avatar,
                     online: user.online,
                     verified: user.verified,

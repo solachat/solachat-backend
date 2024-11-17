@@ -61,7 +61,7 @@ const uploadFileToGCS = async (fileBuffer: Buffer, destinationPath: string): Pro
     });
 };
 
-// Конфигурация для хранения файла в памяти и передачи в GCS
+
 const storage = multer.memoryStorage();
 
 const fileFilter = (req: UserRequest, file: Express.Multer.File, cb: FileFilterCallback) => {

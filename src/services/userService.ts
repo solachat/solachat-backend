@@ -3,25 +3,26 @@ import generateAvatar from "../utils/generatorAvatar";
 import UserChats from "../models/UserChats";
 
 export const createUser = async (
-    publicKey: string | null,
-    username: string,
+    publicKey: string,
+    username: string | null,
     avatar: string | null = null
 ) => {
     let avatarUrl = avatar;
+
     if (!avatarUrl) {
-        avatarUrl = await generateAvatar(username);
-        console.log(`Аватарка сгенерирована для пользователя ${username}`);
+        avatarUrl = await generateAvatar(publicKey);
+        console.log(`Аватарка сгенерирована для публичного ключа: ${publicKey}`);
     }
 
     const user = await User.create({
-        public_key: publicKey || null,
-        username,
+        public_key: publicKey,
+        username: username || null,
         avatar: avatarUrl,
         lastLogin: new Date(),
         lastOnline: new Date(),
     });
 
-    console.log('Creating user with public key:', publicKey);
+    console.log('Пользователь создан:', publicKey);
     return user;
 };
 

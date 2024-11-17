@@ -24,7 +24,7 @@ router.get('/:username/avatars', getUserAvatars);
 router.get('/users/:userId', getUserById);
 router.get('/search', searchUser);
 
-router.put('/profile/:username', authenticateToken, updateProfile);
+router.put('/profile/:public_key', authenticateToken, updateProfile);
 router.put('/avatar', authenticateToken, upload.single('avatar'), updateAvatar);
 router.put('/attach-public-key', authenticateToken, attachPublicKey);
 

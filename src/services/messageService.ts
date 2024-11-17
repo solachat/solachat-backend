@@ -14,6 +14,7 @@ export const createMessage = async (
 
     console.time('DB Write: Message');
     const message = await Message.create({
+        
         chatId,
         userId,
         content: JSON.stringify(encryptedContent),

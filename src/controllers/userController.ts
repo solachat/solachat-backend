@@ -8,7 +8,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { Op } from "sequelize";
-import { getDestination } from "../config/uploadConfig";
+import {getDestination, uploadFileToGCS} from "../config/uploadConfig";
 import { getSolanaBalance, getTokenBalance } from "../services/solanaService";
 import nacl from 'tweetnacl';
 import base58 from 'bs58';
@@ -16,18 +16,25 @@ import { authenticator } from 'otplib';
 import { ethers } from 'ethers';
 import { isSolanaWallet, isEthereumWallet } from '../utils/walletUtils';
 import {getEthereumBalance} from "../services/ethereumService";
+import { v4 as uuidv4 } from 'uuid';
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
 export const registerUser = async (req: Request, res: Response) => {
-    const { username, wallet: publicKey, message, signature } = req.body;
+    const { wallet: publicKey, message, signature } = req.body;
 
-    console.log('Registration Data:', { username, publicKey, message });
-    console.log('Signature received:', signature, 'Length:', signature.length);
+    console.log('Registration Data:', { publicKey, message });
+    if (signature) {
+        console.log('Signature received:', signature, 'Length:', signature.length);
+    }
 
     try {
         if (!publicKey || !message || !signature) {
             return res.status(400).json({ message: 'Public key, message, and signature are required' });
+        }
+
+        if (typeof publicKey !== 'string' || typeof message !== 'string' || typeof signature !== 'string') {
+            return res.status(400).json({ message: 'Invalid data format for public key, message, or signature' });
         }
 
         const existingUser = await User.findOne({ where: { public_key: publicKey } });
@@ -35,14 +42,9 @@ export const registerUser = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Public key is already registered' });
         }
 
-        const existingUsername = await User.findOne({ where: { username } });
-        if (existingUsername) {
-            return res.status(400).json({ message: 'Username is already taken' });
-        }
-
         let isValidSignature = false;
-
         if (isSolanaWallet(publicKey)) {
+            console.log('Validating Solana wallet...');
             const decodedSignature = new Uint8Array(Buffer.from(signature, 'base64'));
             const decodedPublicKey = base58.decode(publicKey);
 
@@ -52,6 +54,7 @@ export const registerUser = async (req: Request, res: Response) => {
                 decodedPublicKey
             );
         } else if (isEthereumWallet(publicKey)) {
+            console.log('Validating Ethereum wallet...');
             const messageHash = ethers.utils.hashMessage(message);
             const recoveredAddress = ethers.utils.recoverAddress(messageHash, signature);
 
@@ -64,21 +67,25 @@ export const registerUser = async (req: Request, res: Response) => {
             return res.status(400).json({ message: 'Invalid signature' });
         }
 
-        const user = await createUser(publicKey, username, null);
-        console.info(`User registered: ${user.username}, Wallet: ${publicKey}`);
+        const user = await createUser(publicKey, null);
+
+        console.info(`User successfully registered: Wallet: ${publicKey}`);
 
         const token = jwt.sign(
-            { id: user.id, publicKey: user.public_key, username: user.username, avatar: user.avatar },
+            { id: user.id, publicKey: user.public_key, avatar: user.avatar },
             process.env.JWT_SECRET || 'your_default_secret',
             { expiresIn: '48h' }
         );
 
+        console.log('Generated Token:', token);
+
         res.status(201).json({ token, user });
     } catch (error) {
         console.error(`Registration failed: ${(error as Error).message}`);
-        res.status(500).json({ error: (error as Error).message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 };
+
 
 export const loginUser = async (req: Request, res: Response) => {
     const { walletAddress, message, signature, totpCode } = req.body;
@@ -100,12 +107,13 @@ export const loginUser = async (req: Request, res: Response) => {
             }
 
             const token = jwt.sign(
-                { id: user.id, publicKey: user.public_key, username: user.username, avatar: user.avatar },
+                { id: user.id, publicKey: user.public_key, avatar: user.avatar },
                 secret,
                 { expiresIn: '48h' }
             );
 
-            return res.json({ token, user: { username: user.username, publicKey: user.public_key } });
+            console.log('Token created with publicKey:', user.public_key);
+            return res.json({ token, user: { publicKey: user.public_key, avatar: user.avatar } });
         }
 
         if (!walletAddress || !message || !signature) {
@@ -119,8 +127,18 @@ export const loginUser = async (req: Request, res: Response) => {
 
         let isValidSignature = false;
 
-        if (isSolanaWallet(walletAddress)) {
-            const decodedSignature = Uint8Array.from(signature);
+        if (isEthereumWallet(walletAddress)) {
+            const messageHash = ethers.utils.hashMessage(message);
+
+            try {
+                const recoveredAddress = ethers.utils.recoverAddress(messageHash, signature);
+                isValidSignature = recoveredAddress.toLowerCase() === walletAddress.toLowerCase();
+            } catch (error) {
+                console.error("Error in signature verification:", error);
+                return res.status(400).json({ message: 'Invalid signature format' });
+            }
+        } else if (isSolanaWallet(walletAddress)) {
+            const decodedSignature = new Uint8Array(Buffer.from(signature, 'base64'));
             const decodedPublicKey = base58.decode(walletAddress);
 
             isValidSignature = nacl.sign.detached.verify(
@@ -128,11 +146,6 @@ export const loginUser = async (req: Request, res: Response) => {
                 decodedSignature,
                 decodedPublicKey
             );
-        } else if (isEthereumWallet(walletAddress)) {
-            const messageHash = ethers.utils.hashMessage(message);
-            const recoveredAddress = ethers.utils.recoverAddress(messageHash, signature);
-
-            isValidSignature = recoveredAddress.toLowerCase() === walletAddress.toLowerCase();
         } else {
             return res.status(400).json({ message: 'Unsupported wallet format' });
         }
@@ -145,15 +158,16 @@ export const loginUser = async (req: Request, res: Response) => {
         await user.save();
 
         const token = jwt.sign(
-            { id: user.id, publicKey: user.public_key, username: user.username, avatar: user.avatar },
+            { id: user.id, publicKey: user.public_key, avatar: user.avatar },
             secret,
             { expiresIn: '48h' }
         );
 
-        return res.json({ token, user: { username: user.username, publicKey: user.public_key, avatar: user.avatar } });
+        console.log('Returning publicKey:', user.public_key);
+        return res.json({ token, user: { publicKey: user.public_key, avatar: user.avatar } });
     } catch (error) {
         const err = error as Error;
-        logger.error(`Login failed: ${err.message}`);
+        console.error(`Login failed: ${err.message}`);
         return res.status(500).json({ error: err.message });
     }
 };
@@ -165,14 +179,19 @@ export const getProfile = async (req: Request, res: Response) => {
     }
 
     try {
-        const decoded = jwt.verify(token, secret) as { username: string };
-        const user = await User.findOne({ where: { username: req.query.username } });
+        const decoded = jwt.verify(token, secret) as { publicKey: string };
+
+        const searchCriteria = req.query.public_key
+            ? { public_key: req.query.public_key }
+            : { username: req.query.username };
+
+        const user = await User.findOne({ where: searchCriteria });
 
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const isOwner = decoded.username === user.username;
+        const isOwner = decoded.publicKey === user.public_key;
         const { password, ...safeUserData } = user.dataValues;
 
         const responseData: any = {
@@ -216,13 +235,13 @@ export const getProfile = async (req: Request, res: Response) => {
     }
 };
 
-
 export const updateProfile = async (req: Request, res: Response) => {
-    const { username } = req.params;
+    console.log("Authorization Header on server:", req.headers.authorization);
+    const { public_key } = req.params;
     const { newUsername, sharePublicKey, aboutMe } = req.body;
 
     try {
-        const user = await User.findOne({ where: { username } });
+        const user = await User.findOne({ where: { public_key } });
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
@@ -241,7 +260,7 @@ export const updateProfile = async (req: Request, res: Response) => {
         await user.save();
 
         const token = jwt.sign(
-            { id: user.id, username: user.username },
+            { id: user.id, publicKey: user.public_key },
             secret,
             { expiresIn: '48h' }
         );
@@ -253,6 +272,7 @@ export const updateProfile = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Error updating profile', message: err.message });
     }
 };
+
 
 const hashFile = (filePath: string): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -286,32 +306,31 @@ export const updateAvatar = async (req: UserRequest, res: Response) => {
         }
 
         const fileExtension = path.extname(req.file.originalname).slice(1);
-        const destinationPath = getDestination(fileExtension);
-        ensureDirectoryExists(destinationPath);
+        const uniqueFileName = `${uuidv4()}.${fileExtension}`;
+        const destinationPath = `${getDestination(fileExtension)}/${uniqueFileName}`;
 
-        const uploadedFilePath = path.join(destinationPath, req.file.filename);
-        const uploadedFileHash = await hashFile(uploadedFilePath);
+        const avatarUrl = await uploadFileToGCS(req.file.buffer, destinationPath);
 
+        const uploadedFileHash = crypto
+            .createHash('sha256')
+            .update(req.file.buffer)
+            .digest('hex');
         const existingUserWithSameHash = await User.findOne({ where: { avatarHash: uploadedFileHash } });
 
         if (existingUserWithSameHash) {
-            fs.unlink(uploadedFilePath, (err) => {
-                if (err) {
-                    logger.error(`Error removing duplicate file: ${err.message}`);
-                }
-            });
+            user.avatar = existingUserWithSameHash.avatar; // Если аватар совпадает, используем существующий
+            logger.info('Avatar is the same as an existing one, no changes made');
             return res.json({
                 message: 'Avatar is the same as an existing one, no changes made',
                 avatar: existingUserWithSameHash.avatar,
             });
         }
 
-        const avatarUrl = `${req.protocol}://${req.get('host')}/${destinationPath}/${req.file.filename}`;
         user.avatar = avatarUrl;
         user.avatarHash = uploadedFileHash;
 
         const token = jwt.sign(
-            { id: user.id, username: user.username, avatar: user.avatar },
+            { id: user.id, publicKey: user.public_key, avatar: user.avatar },
             secret,
             { expiresIn: '48h' }
         );
@@ -326,7 +345,6 @@ export const updateAvatar = async (req: UserRequest, res: Response) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
-
 
 export const getUserAvatars = async (req: Request, res: Response) => {
     try {
@@ -364,9 +382,10 @@ export const searchUser = async (req: Request, res: Response) => {
             where: {
                 [Op.or]: [
                     { username: { [Op.iLike]: `%${searchTerm}%` } },
+                    { public_key: { [Op.iLike]: `%${searchTerm}%` } },
                 ],
             },
-            attributes: ['id', 'username', 'avatar', 'online', "verified"],
+            attributes: ['id', 'username', 'public_key', 'avatar', 'online', "verified"],
         });
 
         res.status(200).json(users);

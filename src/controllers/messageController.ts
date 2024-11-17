@@ -186,5 +186,3 @@ export const markMessageAsReadController = async (req: UserRequest, res: Respons
         res.status(500).json({ message: 'Ошибка при обновлении статуса прочтения.' });
     }
 };
-
-

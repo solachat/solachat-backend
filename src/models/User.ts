@@ -23,12 +23,12 @@ User.init(
     {
         public_key: {
             type: DataTypes.STRING,
-            allowNull: true,
+            allowNull: false,
             unique: true,
         },
         username: {
             type: DataTypes.STRING,
-            allowNull: false,
+            allowNull: true,
             unique: true,
         },
         aboutMe: {
