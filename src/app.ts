@@ -12,6 +12,7 @@ import './models/associations';
 import downloadRoutes from './routes/fileRoutes';
 import fileRoutes from './routes/fileRoutes';
 import callRoutes from './routes/callRoutes';
+import redisClient from './config/redisClient';
 
 const app = express();
 

@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import {
-    createMessage,
+    createMessage, deleteMessageById,
     getMessageById,
     getMessages,
     updateMessageContent
@@ -36,7 +36,7 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
 
             console.time('DB Query: User and Chat');
             const [sender, chat] = await Promise.all([
-                User.findByPk(req.user!.id, { attributes: ['id', 'username', 'avatar', 'verified'] }),
+                User.findByPk(req.user!.id, { attributes: ['id', 'username', 'public_key', 'avatar', 'verified'] }),
                 Chat.findByPk(Number(chatId)),
             ]);
             console.timeEnd('DB Query: User and Chat');
@@ -87,18 +87,25 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
 
 export const getMessagesController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
+
     try {
         const messages = await getMessages(Number(chatId));
-        const decryptedMessages = messages.map((message) => ({
-            ...message.toJSON(),
-            content: decryptMessage(JSON.parse(message.content))
-        }));
+
+        const decryptedMessages = messages.map((message: Message) => {
+            const messageData = typeof message.toJSON === 'function' ? message.toJSON() : message;
+
+            return {
+                ...messageData,
+                content: message.content ? decryptMessage(JSON.parse(message.content)) : null
+            };
+        });
+
         res.status(200).json(decryptedMessages);
     } catch (error) {
         console.error('Error getting messages:', error);
         res.status(500).json({ message: 'Ошибка при получении сообщений.' });
     }
-};
+}
 
 export const editMessageController = async (req: UserRequest, res: Response) => {
     const { messageId } = req.params;
@@ -140,23 +147,24 @@ export const deleteMessageController = async (req: UserRequest, res: Response) =
     const { messageId } = req.params;
 
     try {
-        const message = await getMessageById(Number(messageId));
-        if (!message) return res.status(404).json({ message: 'Сообщение не найдено.' });
-
-        if (message.userId !== req.user!.id) {
-            return res.status(403).json({ message: 'Вы не можете удалить это сообщение.' });
-        }
-
-        await message.destroy();
+        await deleteMessageById(Number(messageId), req.user!.id);
 
         broadcastToClients('deleteMessage', {
-            messageId: message.id,
-            chatId: message.chatId,
+            messageId: Number(messageId),
         });
 
         res.status(200).json({ message: 'Сообщение успешно удалено.' });
-    } catch (error) {
+    } catch (error: any) {
         console.error('Ошибка при удалении сообщения:', error);
+
+        if (error.message === 'Сообщение не найдено.') {
+            return res.status(404).json({ message: error.message });
+        }
+
+        if (error.message === 'Недостаточно прав для удаления сообщения.') {
+            return res.status(403).json({ message: error.message });
+        }
+
         res.status(500).json({ message: 'Ошибка при удалении сообщения.' });
     }
 };
@@ -186,5 +194,3 @@ export const markMessageAsReadController = async (req: UserRequest, res: Respons
         res.status(500).json({ message: 'Ошибка при обновлении статуса прочтения.' });
     }
 };
-
-

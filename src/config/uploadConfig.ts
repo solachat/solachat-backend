@@ -1,16 +1,16 @@
 import multer, { FileFilterCallback } from 'multer';
 import path from 'path';
-import { Storage } from '@google-cloud/storage';
+import fs from 'fs';
 import { UserRequest } from '../types/types';
 
-const storageClient = new Storage({
-    projectId: 'avid-compound-432501-j1',
-    keyFilename: path.join(__dirname, '../../your-keyfile.json')
-});
-const bucketName = 'avid-compound-432501-j1';
-const bucket = storageClient.bucket(bucketName);
+const ensureDirectoryExists = (dir: string) => {
+    if (!fs.existsSync(dir)) {
+        console.log(`Каталог ${dir} не существует. Создаем...`);
+        fs.mkdirSync(dir, { recursive: true });
+    }
+};
 
-const getDestination = (fileExtension: string): string => {
+const getDestination = (fileExtension: string) => {
     switch (fileExtension) {
         case 'jpeg':
         case 'jpg':
@@ -37,37 +37,33 @@ const getDestination = (fileExtension: string): string => {
     }
 };
 
-const ensureDirectoryExists = (dir: string): void => {
-    console.log(`Каталог ${dir} используется для Google Cloud Storage и не создается локально.`);
-};
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const fileExtension = path.extname(file.originalname).toLowerCase().slice(1);
+        const destinationPath = getDestination(fileExtension);
 
-const uploadFileToGCS = async (fileBuffer: Buffer, destinationPath: string): Promise<string> => {
-    const blob = bucket.file(destinationPath);
-    const blobStream = blob.createWriteStream({
-        resumable: false,
-        gzip: true,
-        metadata: {
-            cacheControl: 'public, max-age=31536000',
-        },
-    });
+        ensureDirectoryExists(destinationPath);
+        cb(null, destinationPath);
+    },
+    filename: (req, file, cb) => {
+        const safeFileName = Buffer.from(file.originalname, 'latin1').toString('utf8');
+        const destinationPath = getDestination(path.extname(safeFileName).toLowerCase().slice(1));
 
-    return new Promise<string>((resolve, reject) => {
-        blobStream.on('error', (err) => reject(`Ошибка при загрузке файла: ${err}`));
-        blobStream.on('finish', () => {
-            const publicUrl = `https://storage.googleapis.com/${bucketName}/${destinationPath}`;
-            resolve(publicUrl);
-        });
-        blobStream.end(fileBuffer);
-    });
-};
+        const fullPath = path.join(destinationPath, safeFileName);
 
-// Конфигурация для хранения файла в памяти и передачи в GCS
-const storage = multer.memoryStorage();
+        if (fs.existsSync(fullPath)) {
+            const uniqueSuffix = Date.now();
+            const newFileName = `${path.basename(safeFileName, path.extname(safeFileName))}-${uniqueSuffix}${path.extname(safeFileName)}`;
+            cb(null, newFileName);
+        } else {
+            cb(null, safeFileName);
+        }
+    }
+});
 
 const fileFilter = (req: UserRequest, file: Express.Multer.File, cb: FileFilterCallback) => {
     const validTypes = ['jpeg', 'jpg', 'png', 'gif', 'pdf', 'doc', 'docx', 'txt', 'mp4', 'avi', 'mov', 'mp3', 'wav', 'zip', 'rar'];
     const extname = path.extname(file.originalname).toLowerCase().slice(1);
-
     if (validTypes.includes(extname)) {
         cb(null, true);
     } else {
@@ -81,4 +77,4 @@ export const upload = multer({
     fileFilter
 });
 
-export { getDestination, uploadFileToGCS, ensureDirectoryExists };
+export { ensureDirectoryExists, getDestination };

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { createUser, updateUserStatus } from '../services/userService';
+import {createUser, getUserById, getUserByPublicKey, updateUserStatus} from '../services/userService';
 import { UserRequest } from '../types/types';
 import User from '../models/User';
 import logger from '../utils/logger';
@@ -8,7 +8,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { Op } from "sequelize";
-import { getDestination } from "../config/uploadConfig";
+import {ensureDirectoryExists, getDestination} from "../config/uploadConfig";
 import { getSolanaBalance, getTokenBalance } from "../services/solanaService";
 import nacl from 'tweetnacl';
 import base58 from 'bs58';
@@ -16,33 +16,36 @@ import { authenticator } from 'otplib';
 import { ethers } from 'ethers';
 import { isSolanaWallet, isEthereumWallet } from '../utils/walletUtils';
 import {getEthereumBalance} from "../services/ethereumService";
+import { v4 as uuidv4 } from 'uuid';
+import redisClient from "../config/redisClient";
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
 
 export const registerUser = async (req: Request, res: Response) => {
-    const { username, wallet: publicKey, message, signature } = req.body;
+    const { wallet: publicKey, message, signature } = req.body;
 
-    console.log('Registration Data:', { username, publicKey, message });
-    console.log('Signature received:', signature, 'Length:', signature.length);
+    console.log('Registration Data:', { publicKey, message });
+    if (signature) {
+        console.log('Signature received:', signature, 'Length:', signature.length);
+    }
 
     try {
         if (!publicKey || !message || !signature) {
-            return res.status(400).json({ message: 'Public key, message, and signature are required' });
+            res.status(400).json({ message: 'Public key, message, and signature are required' });
+        }
+
+        if (typeof publicKey !== 'string' || typeof message !== 'string' || typeof signature !== 'string') {
+            res.status(400).json({ message: 'Invalid data format for public key, message, or signature' });
         }
 
         const existingUser = await User.findOne({ where: { public_key: publicKey } });
         if (existingUser) {
-            return res.status(400).json({ message: 'Public key is already registered' });
-        }
-
-        const existingUsername = await User.findOne({ where: { username } });
-        if (existingUsername) {
-            return res.status(400).json({ message: 'Username is already taken' });
+            res.status(400).json({ message: 'Public key is already registered' });
         }
 
         let isValidSignature = false;
-
         if (isSolanaWallet(publicKey)) {
+            console.log('Validating Solana wallet...');
             const decodedSignature = new Uint8Array(Buffer.from(signature, 'base64'));
             const decodedPublicKey = base58.decode(publicKey);
 
@@ -52,33 +55,38 @@ export const registerUser = async (req: Request, res: Response) => {
                 decodedPublicKey
             );
         } else if (isEthereumWallet(publicKey)) {
+            console.log('Validating Ethereum wallet...');
             const messageHash = ethers.utils.hashMessage(message);
             const recoveredAddress = ethers.utils.recoverAddress(messageHash, signature);
 
             isValidSignature = recoveredAddress.toLowerCase() === publicKey.toLowerCase();
         } else {
-            return res.status(400).json({ message: 'Unsupported wallet format' });
+            res.status(400).json({ message: 'Unsupported wallet format' });
         }
 
         if (!isValidSignature) {
-            return res.status(400).json({ message: 'Invalid signature' });
+            res.status(400).json({ message: 'Invalid signature' });
         }
 
-        const user = await createUser(publicKey, username, null);
-        console.info(`User registered: ${user.username}, Wallet: ${publicKey}`);
+        const user = await createUser(publicKey, null);
+
+        console.info(`User successfully registered: Wallet: ${publicKey}`);
 
         const token = jwt.sign(
-            { id: user.id, publicKey: user.public_key, username: user.username, avatar: user.avatar },
+            { id: user.id, publicKey: user.public_key, avatar: user.avatar },
             process.env.JWT_SECRET || 'your_default_secret',
             { expiresIn: '48h' }
         );
 
+        console.log('Generated Token:', token);
+
         res.status(201).json({ token, user });
     } catch (error) {
         console.error(`Registration failed: ${(error as Error).message}`);
-        res.status(500).json({ error: (error as Error).message });
+        res.status(500).json({ error: 'Internal server error' });
     }
 };
+
 
 export const loginUser = async (req: Request, res: Response) => {
     const { walletAddress, message, signature, totpCode } = req.body;
@@ -100,12 +108,13 @@ export const loginUser = async (req: Request, res: Response) => {
             }
 
             const token = jwt.sign(
-                { id: user.id, publicKey: user.public_key, username: user.username, avatar: user.avatar },
+                { id: user.id, publicKey: user.public_key, avatar: user.avatar },
                 secret,
                 { expiresIn: '48h' }
             );
 
-            return res.json({ token, user: { username: user.username, publicKey: user.public_key } });
+            console.log('Token created with publicKey:', user.public_key);
+            return res.json({ token, user: { publicKey: user.public_key, avatar: user.avatar } });
         }
 
         if (!walletAddress || !message || !signature) {
@@ -119,8 +128,18 @@ export const loginUser = async (req: Request, res: Response) => {
 
         let isValidSignature = false;
 
-        if (isSolanaWallet(walletAddress)) {
-            const decodedSignature = Uint8Array.from(signature);
+        if (isEthereumWallet(walletAddress)) {
+            const messageHash = ethers.utils.hashMessage(message);
+
+            try {
+                const recoveredAddress = ethers.utils.recoverAddress(messageHash, signature);
+                isValidSignature = recoveredAddress.toLowerCase() === walletAddress.toLowerCase();
+            } catch (error) {
+                console.error("Error in signature verification:", error);
+                res.status(400).json({ message: 'Invalid signature format' });
+            }
+        } else if (isSolanaWallet(walletAddress)) {
+            const decodedSignature = new Uint8Array(Buffer.from(signature, 'base64'));
             const decodedPublicKey = base58.decode(walletAddress);
 
             isValidSignature = nacl.sign.detached.verify(
@@ -128,11 +147,6 @@ export const loginUser = async (req: Request, res: Response) => {
                 decodedSignature,
                 decodedPublicKey
             );
-        } else if (isEthereumWallet(walletAddress)) {
-            const messageHash = ethers.utils.hashMessage(message);
-            const recoveredAddress = ethers.utils.recoverAddress(messageHash, signature);
-
-            isValidSignature = recoveredAddress.toLowerCase() === walletAddress.toLowerCase();
         } else {
             return res.status(400).json({ message: 'Unsupported wallet format' });
         }
@@ -145,35 +159,44 @@ export const loginUser = async (req: Request, res: Response) => {
         await user.save();
 
         const token = jwt.sign(
-            { id: user.id, publicKey: user.public_key, username: user.username, avatar: user.avatar },
+            { id: user.id, publicKey: user.public_key, avatar: user.avatar },
             secret,
             { expiresIn: '48h' }
         );
 
-        return res.json({ token, user: { username: user.username, publicKey: user.public_key, avatar: user.avatar } });
+        console.log('Returning publicKey:', user.public_key);
+        return res.json({ token, user: { publicKey: user.public_key, avatar: user.avatar } });
     } catch (error) {
         const err = error as Error;
-        logger.error(`Login failed: ${err.message}`);
-        return res.status(500).json({ error: err.message });
+        console.error(`Login failed: ${err.message}`);
+        res.status(500).json({ error: err.message });
     }
 };
 
 export const getProfile = async (req: Request, res: Response) => {
     const token = req.headers.authorization?.split(' ')[1];
+
     if (!token) {
         return res.status(401).json({ message: 'No token provided' });
     }
 
+    const publicKey = req.query.public_key as string;
+
+    if (!publicKey) {
+        return res.status(400).json({ message: 'Invalid request: missing public_key' });
+    }
+
     try {
-        const decoded = jwt.verify(token, secret) as { username: string };
-        const user = await User.findOne({ where: { username: req.query.username } });
+        const decoded = jwt.verify(token, secret) as { publicKey: string };
+
+        const user = await getUserByPublicKey(publicKey);
 
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const isOwner = decoded.username === user.username;
-        const { password, ...safeUserData } = user.dataValues;
+        const isOwner = decoded.publicKey === user.public_key;
+        const { password, ...safeUserData } = user;
 
         const responseData: any = {
             ...safeUserData,
@@ -186,43 +209,20 @@ export const getProfile = async (req: Request, res: Response) => {
             ethereumBalance: 0,
         };
 
-        if (user.public_key) {
-            if (isSolanaWallet(user.public_key)) {
-                try {
-                    responseData.balance = await getSolanaBalance(user.public_key) || 0;
-                    responseData.tokenBalance = await getTokenBalance(user.public_key) || 0;
-                } catch (error) {
-                    const err = error as Error;
-                    logger.error(`Error fetching Solana balances for ${user.public_key}: ${err.message}`);
-                }
-            }
-            else if (isEthereumWallet(user.public_key)) {
-                try {
-                    responseData.ethereumBalance = await getEthereumBalance(user.public_key) || 0;
-                } catch (error) {
-                    const err = error as Error;
-                    logger.error(`Error fetching Ethereum balance for ${user.public_key}: ${err.message}`);
-                }
-            } else {
-                responseData.balanceError = 'Unsupported wallet format';
-            }
-        }
 
         res.json(responseData);
     } catch (error) {
-        const err = error as Error;
-        logger.error(`Profile fetch failed: ${err.message}`);
-        return res.status(401).json({ message: 'Invalid token' });
+        console.error(`Profile fetch failed: ${error}`);
+        res.status(401).json({ message: 'Invalid token' });
     }
 };
 
-
 export const updateProfile = async (req: Request, res: Response) => {
-    const { username } = req.params;
+    const { public_key } = req.params;
     const { newUsername, sharePublicKey, aboutMe } = req.body;
 
     try {
-        const user = await User.findOne({ where: { username } });
+        const user = await User.findOne({ where: { public_key } });
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
@@ -240,8 +240,11 @@ export const updateProfile = async (req: Request, res: Response) => {
 
         await user.save();
 
+        const userCacheKey = `user:${user.public_key}`;
+        await redisClient.del(userCacheKey);
+
         const token = jwt.sign(
-            { id: user.id, username: user.username },
+            { id: user.id, publicKey: user.public_key },
             secret,
             { expiresIn: '48h' }
         );
@@ -251,22 +254,6 @@ export const updateProfile = async (req: Request, res: Response) => {
         const err = error as Error;
         logger.error(`Profile update failed: ${err.message}`);
         res.status(500).json({ error: 'Error updating profile', message: err.message });
-    }
-};
-
-const hashFile = (filePath: string): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const hash = crypto.createHash('sha256');
-        const stream = fs.createReadStream(filePath);
-        stream.on('data', (data) => hash.update(data));
-        stream.on('end', () => resolve(hash.digest('hex')));
-        stream.on('error', reject);
-    });
-};
-
-const ensureDirectoryExists = (dir: string) => {
-    if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
     }
 };
 
@@ -287,10 +274,12 @@ export const updateAvatar = async (req: UserRequest, res: Response) => {
 
         const fileExtension = path.extname(req.file.originalname).slice(1);
         const destinationPath = getDestination(fileExtension);
+
         ensureDirectoryExists(destinationPath);
 
         const uploadedFilePath = path.join(destinationPath, req.file.filename);
-        const uploadedFileHash = await hashFile(uploadedFilePath);
+        const fileBuffer = fs.readFileSync(uploadedFilePath);
+        const uploadedFileHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
 
         const existingUserWithSameHash = await User.findOne({ where: { avatarHash: uploadedFileHash } });
 
@@ -300,25 +289,39 @@ export const updateAvatar = async (req: UserRequest, res: Response) => {
                     logger.error(`Error removing duplicate file: ${err.message}`);
                 }
             });
+
+            const token = jwt.sign(
+                { id: user.id, publicKey: user.public_key, avatar: user.avatar },
+                secret,
+                { expiresIn: '48h' }
+            );
+
             return res.json({
                 message: 'Avatar is the same as an existing one, no changes made',
                 avatar: existingUserWithSameHash.avatar,
+                token
             });
         }
 
         const avatarUrl = `${req.protocol}://${req.get('host')}/${destinationPath}/${req.file.filename}`;
         user.avatar = avatarUrl;
         user.avatarHash = uploadedFileHash;
+        await user.save();
+
+        const userCacheKey = `user:${user.public_key}`;
+        const cachedUser = await redisClient.get(userCacheKey);
+        if (cachedUser) {
+            const updatedUser = JSON.parse(cachedUser);
+            updatedUser.avatar = user.avatar;
+            await redisClient.setEx(userCacheKey, 3600, JSON.stringify(updatedUser));
+        }
 
         const token = jwt.sign(
-            { id: user.id, username: user.username, avatar: user.avatar },
+            { id: user.id, publicKey: user.public_key, avatar: user.avatar },
             secret,
             { expiresIn: '48h' }
         );
 
-        await user.save();
-
-        logger.info('Successfully updated avatar!');
         res.json({ message: 'Avatar updated successfully', avatar: user.avatar, token });
     } catch (error) {
         const err = error as Error;
@@ -364,9 +367,10 @@ export const searchUser = async (req: Request, res: Response) => {
             where: {
                 [Op.or]: [
                     { username: { [Op.iLike]: `%${searchTerm}%` } },
+                    { public_key: { [Op.iLike]: `%${searchTerm}%` } },
                 ],
             },
-            attributes: ['id', 'username', 'avatar', 'online', "verified"],
+            attributes: ['id', 'username', 'public_key', 'avatar', 'online', "verified"],
         });
 
         res.status(200).json(users);

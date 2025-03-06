@@ -1,7 +1,8 @@
 import { File } from '../models/File';
 import { encryptFile, decryptFile } from '../encryption/fileEncryption';
-import { getDestination, uploadFileToGCS } from '../config/uploadConfig';
-import { v4 as uuidv4 } from 'uuid';
+import fs from 'fs';
+import path from 'path';
+import redisClient from '../config/redisClient';
 
 export const createFile = async (
     file: Express.Multer.File,
@@ -10,41 +11,55 @@ export const createFile = async (
     decrypt: boolean = false
 ) => {
     try {
-        if (!file || !file.buffer) {
-            throw new Error('Оригинальный файл отсутствует или его буфер данных недоступен.');
+        console.log(`Проверка существования оригинального файла: ${file.path}`);
+        if (!fs.existsSync(file.path)) {
+            throw new Error(`Оригинальный файл не существует по пути: ${file.path}`);
         }
 
-        const uniqueOriginalName = `${uuidv4()}-${file.originalname}`;
-        const originalDestinationPath = `${getDestination(file.mimetype)}/${uniqueOriginalName}`;
+        console.log(`Читаем содержимое файла перед шифрованием: ${file.path}`);
+        const fileBuffer = fs.readFileSync(file.path);
 
-        const originalPublicUrl = await uploadFileToGCS(file.buffer, originalDestinationPath);
-        console.log(`Оригинальный файл загружен в GCS: ${originalPublicUrl}`);
+        console.log(`Начало шифрования файла.`);
+        const encryptedBuffer = await encryptFile(fileBuffer);
 
-        const encryptedBuffer = await encryptFile(file.buffer);
+        console.log(`Перезаписываем зашифрованный файл: ${file.path}`);
+        fs.writeFileSync(file.path, encryptedBuffer);
 
-        const encryptedDestinationPath = `${getDestination(file.mimetype)}/${uniqueOriginalName}.enc`;
-        const encryptedPublicUrl = await uploadFileToGCS(encryptedBuffer, encryptedDestinationPath);
-        console.log(`Файл успешно зашифрован и загружен в GCS: ${encryptedPublicUrl}`);
+        console.log(`Проверка существования зашифрованного файла.`);
+        if (!fs.existsSync(file.path)) {
+            throw new Error(`Зашифрованный файл не создан по пути: ${file.path}`);
+        }
 
         const savedFile = await File.create({
-            fileName: uniqueOriginalName,
-            filePath: encryptedPublicUrl,
-            originalFilePath: originalPublicUrl,
+            fileName: file.originalname,
+            filePath: file.path,
             fileType: file.mimetype,
-            userId,
-            chatId,
+            userId: userId,
+            chatId: chatId,
         });
 
-        if (decrypt) {
-            const decryptedBuffer = await decryptFile(encryptedBuffer);
-            const decryptedUrl = await uploadFileToGCS(decryptedBuffer, encryptedDestinationPath);
-            console.log(`Расшифрованный файл загружен в GCS: ${decryptedUrl}`);
+        const redisKey = `file:${savedFile.id}`;
+        await redisClient.setEx(redisKey, 3600, JSON.stringify(savedFile));
 
-            return { savedFile, decryptedFilePath: decryptedUrl };
+        if (decrypt) {
+            console.log(`Читаем зашифрованный файл для расшифровки.`);
+            const encryptedData = fs.readFileSync(file.path);
+
+            console.log(`Начало расшифровки файла.`);
+            const decryptedBuffer = await decryptFile(encryptedData);
+
+            console.log(`Перезаписываем расшифрованный файл: ${file.path}`);
+            fs.writeFileSync(file.path, decryptedBuffer);
+
+            console.log(`Проверка существования расшифрованного файла.`);
+            if (!fs.existsSync(file.path)) {
+                throw new Error(`Расшифрованный файл не создан по пути: ${file.path}`);
+            }
+
+            return { savedFile, decryptedFilePath: file.path };
         }
 
         return savedFile;
-
     } catch (error) {
         console.error('Ошибка при создании записи файла в базе данных:', error);
         throw new Error('Ошибка при сохранении файла в базу данных');

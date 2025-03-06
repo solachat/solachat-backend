@@ -12,6 +12,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
 
   app:
     build:
@@ -19,7 +21,7 @@ services:
       dockerfile: Dockerfile
     restart: always
     ports:
-      - "4000:4000"
+      - "4000:4005"
     environment:
       - DB_HOST=db
       - DB_USER=${DB_USER}
@@ -32,6 +34,11 @@ services:
       - PORT=4000
     depends_on:
       - db
+    networks:
+      - app-network
 
 volumes:
   postgres_data:
+
+networks:
+  app-network:

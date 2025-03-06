@@ -70,19 +70,20 @@ export const createPrivateChatController = async (req: Request, res: Response) =
             users: [
                 {
                     id: user1.id,
-                    username: user1.username,
+                    public_key: user1.public_key,
                     avatar: user1.avatar,
                     online: user1.online
                 },
                 {
                     id: user2.id,
-                    username: user2.username,
+                    public_key: user2.public_key,
                     avatar: user2.avatar,
                     online: user2.online
                 }
             ]
         };
 
+        console.log(`📢 Отправляем уведомление о создании чата:`, chatWithUsers);
         broadcastToClients('chatCreated', { chat: chatWithUsers });
 
         res.status(201).json(chatWithUsers);
@@ -122,7 +123,7 @@ export const createGroupChatController = async (req: Request, res: Response) => 
                 const userChat = await getUserChatRole(chatPlain.id, userId);
                 return user ? {
                     id: user.id,
-                    username: user.username,
+                    publicKey: user.public_key,
                     avatar: user.avatar,
                     online: user.online,
                     role: userChat?.role,

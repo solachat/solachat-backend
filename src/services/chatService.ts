@@ -8,6 +8,10 @@ import fs from "fs";
 import UserChats from "../models/UserChats";
 import { decryptFile } from '../encryption/fileEncryption';
 import path from "path";
+import redisClient from "../config/redisClient";
+
+const CHAT_CACHE_EXPIRY = 60 * 5;
+const MESSAGE_CACHE_EXPIRY = 60 * 3;
 
 const findUsersByIds = async (userIds: number[]) => {
     const users = await User.findAll({ where: { id: userIds } });
@@ -74,7 +78,6 @@ export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     }
 };
 
-
 export const createGroupChat = async (userIds: number[], chatName: string, creatorId: number, avatar?: string) => {
     try {
         const chat = await Chat.create({ name: chatName, isGroup: true, avatar, isFavorite: false });
@@ -91,12 +94,19 @@ export const createGroupChat = async (userIds: number[], chatName: string, creat
 
 export const getChatById = async (chatId: number) => {
     try {
+        const cacheKey = `chat:${chatId}`;
+        const cachedChat = await redisClient.get(cacheKey);
+
+        if (cachedChat) {
+            return JSON.parse(cachedChat);
+        }
+
         const chat = await Chat.findByPk(chatId, {
             include: [
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'avatar', 'online', 'verified'],
+                    attributes: ['id', 'username', 'public_key', 'avatar', 'online', 'verified'],
                     through: { attributes: [] }
                 },
                 {
@@ -107,7 +117,7 @@ export const getChatById = async (chatId: number) => {
                         {
                             model: User,
                             as: 'user',
-                            attributes: ['id', 'username', 'avatar'],
+                            attributes: ['id', 'username', 'public_key', 'avatar'],
                         }
                     ]
                 }
@@ -122,7 +132,11 @@ export const getChatById = async (chatId: number) => {
             content: decryptMessage(JSON.parse(message.content))
         }));
 
-        return { ...chat.toJSON(), messages: decryptedMessages };
+        const chatData = { ...chat.toJSON(), messages: decryptedMessages };
+
+        await redisClient.setEx(cacheKey, CHAT_CACHE_EXPIRY, JSON.stringify(chatData));
+
+        return chatData;
     } catch (error) {
         throw new Error('Не удалось получить чат');
     }
@@ -130,12 +144,20 @@ export const getChatById = async (chatId: number) => {
 
 export const getChatsForUser = async (userId: number) => {
     try {
+        const cacheKey = `userChats:${userId}`;
+        const cachedChats = await redisClient.get(cacheKey);
+
+        if (cachedChats) {
+            console.log(`💾 Отдаем чаты пользователя ${userId} из Redis`);
+            return JSON.parse(cachedChats);
+        }
+
         const chats = await Chat.findAll({
             include: [
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'avatar', 'online', 'verified'],
+                    attributes: ['id', 'username', 'public_key', 'avatar', 'online', 'verified'],
                     through: { attributes: ['role'] },
                 },
                 {
@@ -143,7 +165,7 @@ export const getChatsForUser = async (userId: number) => {
                     as: 'messages',
                     attributes: ['id', 'content', 'fileId', 'createdAt', 'userId', 'isEdited', 'unread', 'isRead'],
                     include: [
-                        { model: User, as: 'user', attributes: ['username', 'avatar'] },
+                        { model: User, as: 'user', attributes: ['username', 'public_key', 'avatar'] },
                         { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] },
                     ],
                 },
@@ -186,7 +208,7 @@ export const getChatsForUser = async (userId: number) => {
                     : chat.users?.find(u => u.id !== userId)?.username || 'Unknown',
                 users: (chat.users || []).map(user => ({
                     id: user.id,
-                    username: user.username,
+                    public_key: user.public_key,
                     avatar: user.avatar,
                     online: user.online,
                     verified: user.verified,
@@ -195,6 +217,8 @@ export const getChatsForUser = async (userId: number) => {
                 messages,
             };
         }));
+
+        await redisClient.setEx(cacheKey, CHAT_CACHE_EXPIRY, JSON.stringify(resultChats));
 
         return resultChats;
     } catch (error) {
@@ -207,24 +231,29 @@ const handleFileAttachment = async (attachment: any) => {
     const encryptedFilePath = attachment.filePath;
     const decryptedFilePath = encryptedFilePath.replace('.enc', '');
 
-    if (fs.existsSync(encryptedFilePath)) {
-        const encryptedBuffer = fs.readFileSync(encryptedFilePath);
-
-        // Расшифровываем файл
-        const decryptedBuffer = await decryptFile(encryptedBuffer);
-
-        // Сохраняем расшифрованный файл на диск
-        fs.writeFileSync(decryptedFilePath, decryptedBuffer);
-
-        // Удаляем зашифрованный файл после расшифровки
-        fs.unlinkSync(encryptedFilePath);
-
-        return { fileName: path.basename(decryptedFilePath), filePath: decryptedFilePath };
+    if (!fs.existsSync(encryptedFilePath)) {
+        console.error(`Файл не найден: ${encryptedFilePath}`);
+        return { fileName: attachment.fileName, filePath: attachment.filePath };
     }
 
-    // Если зашифрованный файл не найден, возвращаем исходные данные
-    return { fileName: attachment.fileName, filePath: attachment.filePath };
+    try {
+        const encryptedBuffer = fs.readFileSync(encryptedFilePath);
+
+        console.log(`Расшифровка файла: ${encryptedFilePath}`);
+        const decryptedBuffer = await decryptFile(encryptedBuffer);
+
+        fs.writeFileSync(decryptedFilePath, decryptedBuffer);
+
+        console.log(`Файл успешно расшифрован: ${decryptedFilePath}`);
+
+        return { fileName: path.basename(decryptedFilePath), filePath: decryptedFilePath };
+    } catch (error: any) {
+    console.error(`Ошибка при расшифровке файла: ${(error as Error).message}`);
+        console.warn(`Файл остался зашифрованным: ${encryptedFilePath}`);
+        return { fileName: attachment.fileName, filePath: encryptedFilePath };
+    }
 };
+
 export const deleteChat = async (chatId: number, userId: number, userRole: string, isGroup: boolean) => {
     try {
         if (isGroup && userRole === 'member') {
@@ -302,6 +331,13 @@ export const updateChatSettings = async (chatId: number, userId: number, groupNa
 };
 
 export const getChatWithMessages = async (chatId: number, userId: number) => {
+    const cacheKey = `chatWithMessages:${chatId}:${userId}`;
+    const cachedChat = await redisClient.get(cacheKey);
+
+    if (cachedChat) {
+        return JSON.parse(cachedChat);
+    }
+
     try {
         const chat = await Chat.findByPk(chatId, {
             include: [
@@ -336,11 +372,20 @@ export const getChatWithMessages = async (chatId: number, userId: number) => {
             content: decryptMessage(JSON.parse(message.content))
         }));
 
-        return {
+        const chatData = {
             ...chat.toJSON(),
             messages: decryptedMessages
         };
+
+        await redisClient.setEx(cacheKey, CHAT_CACHE_EXPIRY, JSON.stringify(chatData));
+
+        return chatData;
     } catch (error) {
         throw new Error('Failed to fetch chat with messages');
     }
+};
+
+export const clearChatCache = async (chatId: number, userId: number) => {
+    const cacheKey = `chatWithMessages:${chatId}:${userId}`;
+    await redisClient.del(cacheKey);
 };

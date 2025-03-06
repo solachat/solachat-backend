@@ -3,7 +3,6 @@ import { initiateCall, answerCall, rejectCall, initiateGroupCall, answerGroupCal
 import { wss } from '../websocket';
 import { getUserById } from '../services/userService';
 
-
 const broadcastToClients = (type: string, payload: object) => {
     const messagePayload = JSON.stringify({ type, ...payload });
     wss.clients.forEach((client: any) => {
