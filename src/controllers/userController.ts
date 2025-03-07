@@ -196,6 +196,7 @@ export const getProfile = async (req: Request, res: Response) => {
         }
 
         const isOwner = decoded.publicKey === user.public_key;
+
         const { password, ...safeUserData } = user;
 
         const responseData: any = {
@@ -204,9 +205,6 @@ export const getProfile = async (req: Request, res: Response) => {
             isOwner,
             aboutMe: user.aboutMe,
             public_key: user.sharePublicKey || isOwner ? user.public_key : undefined,
-            balance: 0,
-            tokenBalance: 0,
-            ethereumBalance: 0,
         };
 
 
@@ -235,7 +233,7 @@ export const updateProfile = async (req: Request, res: Response) => {
         }
 
         user.username = newUsername || user.username;
-        user.sharePublicKey = sharePublicKey !== undefined ? sharePublicKey : user.sharePublicKey;
+        // user.sharePublicKey = sharePublicKey !== undefined ? sharePublicKey : user.sharePublicKey;
         user.aboutMe = aboutMe !== undefined ? aboutMe : user.aboutMe;
 
         await user.save();
@@ -329,7 +327,6 @@ export const updateAvatar = async (req: UserRequest, res: Response) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
-
 
 export const getUserAvatars = async (req: Request, res: Response) => {
     try {

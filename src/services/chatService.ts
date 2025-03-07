@@ -149,7 +149,17 @@ export const getChatsForUser = async (userId: number) => {
 
         if (cachedChats) {
             console.log(`💾 Отдаем чаты пользователя ${userId} из Redis`);
-            return JSON.parse(cachedChats);
+            const parsedChats = JSON.parse(cachedChats);
+
+            for (const chat of parsedChats) {
+                for (const message of chat.messages) {
+                    if (message.fileId && !message.attachment) {
+                        message.attachment = await handleFileAttachment(message.fileId);
+                    }
+                }
+            }
+
+            return parsedChats;
         }
 
         const chats = await Chat.findAll({
@@ -193,8 +203,8 @@ export const getChatsForUser = async (userId: number) => {
                             console.error('Ошибка расшифровки сообщения:', error);
                         }
 
-                        if (message.attachment) {
-                            attachment = await handleFileAttachment(message.attachment);
+                        if (message.fileId) {
+                            attachment = await handleFileAttachment(message.fileId);
                         }
 
                         return { ...message.toJSON(), content: decryptedContent, attachment };
@@ -218,6 +228,7 @@ export const getChatsForUser = async (userId: number) => {
             };
         }));
 
+        // Теперь всегда сохраняем ТОЛЬКО полные данные:
         await redisClient.setEx(cacheKey, CHAT_CACHE_EXPIRY, JSON.stringify(resultChats));
 
         return resultChats;
@@ -227,32 +238,57 @@ export const getChatsForUser = async (userId: number) => {
     }
 };
 
-const handleFileAttachment = async (attachment: any) => {
-    const encryptedFilePath = attachment.filePath;
-    const decryptedFilePath = encryptedFilePath.replace('.enc', '');
 
-    if (!fs.existsSync(encryptedFilePath)) {
-        console.error(`Файл не найден: ${encryptedFilePath}`);
-        return { fileName: attachment.fileName, filePath: attachment.filePath };
-    }
+
+const handleFileAttachment = async (fileId: number) => {
+    const cacheKey = `file:${fileId}`;
 
     try {
-        const encryptedBuffer = fs.readFileSync(encryptedFilePath);
+        // Проверяем Redis
+        const cachedFile = await redisClient.get(cacheKey);
+        if (cachedFile) {
+            console.log(`💾 Файл ${fileId} найден в Redis`);
+            return JSON.parse(cachedFile);
+        }
 
-        console.log(`Расшифровка файла: ${encryptedFilePath}`);
+        // Файл не найден в Redis – ищем в базе данных информацию
+        const fileRecord = await file.findOne({ where: { id: fileId } });
+
+        if (!fileRecord) {
+            console.error(`❌ Файл не найден в базе: ID ${fileId}`);
+            return null;
+        }
+
+        const encryptedFilePath = fileRecord.filePath;
+        const decryptedFilePath = encryptedFilePath.replace('.enc', '');
+
+        if (!fs.existsSync(encryptedFilePath)) {
+            console.error(`❌ Зашифрованный файл не найден: ${encryptedFilePath}`);
+            return { fileName: fileRecord.fileName, filePath: encryptedFilePath };
+        }
+
+        const encryptedBuffer = fs.readFileSync(encryptedFilePath);
+        console.log(`🔐 Расшифровка файла: ${encryptedFilePath}`);
         const decryptedBuffer = await decryptFile(encryptedBuffer);
 
         fs.writeFileSync(decryptedFilePath, decryptedBuffer);
+        console.log(`✅ Файл успешно расшифрован: ${decryptedFilePath}`);
 
-        console.log(`Файл успешно расшифрован: ${decryptedFilePath}`);
+        const fileData = {
+            fileName: fileRecord.fileName,
+            filePath: decryptedFilePath,
+        };
 
-        return { fileName: path.basename(decryptedFilePath), filePath: decryptedFilePath };
-    } catch (error: any) {
-    console.error(`Ошибка при расшифровке файла: ${(error as Error).message}`);
-        console.warn(`Файл остался зашифрованным: ${encryptedFilePath}`);
-        return { fileName: attachment.fileName, filePath: encryptedFilePath };
+        await redisClient.setEx(`file:${fileId}`, 3600, JSON.stringify(fileData));
+        console.log(`💾 Файл ${fileId} сохранен в Redis`);
+
+        return fileData;
+    } catch (error) {
+        console.error(`❌ Ошибка при обработке файла: ${(error as Error).message}`);
+        return null;
     }
 };
+
 
 export const deleteChat = async (chatId: number, userId: number, userRole: string, isGroup: boolean) => {
     try {

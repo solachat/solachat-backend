@@ -1,18 +1,17 @@
 import WebSocket from 'ws';
 import jwt from 'jsonwebtoken';
 import { Socket } from 'net';
-import { getUserById, updateUserStatus } from './services/userService';
+import { getUserByPublicKey, updateUserStatus } from './services/userService';
 import redisClient from './config/redisClient';
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
-export const connectedUsers: { ws: WebSocket, userId: number }[] = [];
+export const connectedUsers: { ws: WebSocket, publicKey: string }[] = [];
 
 export interface WebSocketUser {
     ws: WebSocket;
-    userId: number;
+    publicKey: string;
 }
 
-// Расширяем WebSocket объект, добавляя isAlive
 interface ExtendedWebSocket extends WebSocket {
     isAlive?: boolean;
 }
@@ -31,10 +30,7 @@ export const initWebSocketServer = (server: any) => {
     wss = new WebSocket.Server({ noServer: true });
 
     server.on('upgrade', (request: any, socket: Socket, head: any) => {
-        console.log('Upgrade request received:', request.url);
-
         wss.handleUpgrade(request, socket, head, (ws: ExtendedWebSocket) => {
-            console.log('WebSocket connection established with:', request.url);
             wss.emit('connection', ws, request);
         });
     });
@@ -42,59 +38,54 @@ export const initWebSocketServer = (server: any) => {
     wss.on('connection', async (ws: ExtendedWebSocket, req: any) => {
         const queryParams = new URLSearchParams(req.url?.split('?')[1]);
         const token = queryParams.get('token');
-        console.log('Token received:', token);
 
         if (!token) {
             ws.close(4001, 'No token provided');
             return;
         }
 
-        try {
-            const decoded = jwt.verify(token, secret) as { id: number };
-            const userId = decoded.id;
 
-            let user = await redisClient.get(`user:${userId}`);
-            if (!user) {
-                user = JSON.stringify(await getUserById(userId));
+        try {
+            const decoded = jwt.verify(token, secret) as { publicKey: string };
+            const publicKey = String(decoded.publicKey);
+
+            let userData = await redisClient.get(`user:${publicKey}`);
+            let user;
+
+            if (userData) {
+                user = JSON.parse(userData);
+            } else {
+                user = await getUserByPublicKey(publicKey);
                 if (!user) {
                     ws.close(4002, 'User not found');
                     return;
                 }
-                await redisClient.setEx(`user:${userId}`, 300, user);
             }
-            const parsedUser = JSON.parse(user);
 
-            broadcastClients({ type: 'USER_CONNECTED', userId });
+            user.online = true;
+            await redisClient.setEx(`user:${publicKey}`, 300, JSON.stringify(user));
+            await updateUserStatus(publicKey, true);
 
-            console.log(`User ${parsedUser.username} connected with ID ${userId}`);
-            connectedUsers.push({ ws, userId });
+            connectedUsers.push({ ws, publicKey });
 
-            // Обновляем статус в Redis
-            await redisClient.set(`online:${userId}`, 'true');
-            await updateUserStatus(userId, true);
+            broadcastClients({ type: 'USER_CONNECTED', publicKey });
 
-            // 🔥 Добавляем isAlive для Ping/Pong
+            console.log(`✅ User ${publicKey} connected`);
+
             ws.isAlive = true;
             ws.on('pong', () => {
                 ws.isAlive = true;
             });
 
-            ws.on('message', (message: string) => {
-                const parsedMessage = JSON.parse(message);
-            });
-
             ws.on('close', () => {
-                console.log(`User ${parsedUser.username} disconnected.`);
-                removeUserConnection(userId);
+                removeUserConnection(publicKey);
             });
 
         } catch (error) {
-            console.error('JWT verification error:', error);
             ws.close(4003, 'Invalid token');
         }
     });
 
-    // 🔥 Ping/Pong проверка соединений каждые 30 секунд
     setInterval(() => {
         wss.clients.forEach((ws) => {
             const client = ws as ExtendedWebSocket;
@@ -103,29 +94,30 @@ export const initWebSocketServer = (server: any) => {
             client.ping();
         });
     }, 30000);
-
-    console.log('WebSocket server initialized successfully.');
 };
 
-const removeUserConnection = async (userId: number) => {
-    const index = connectedUsers.findIndex(user => user.userId === userId);
+const removeUserConnection = async (publicKey: string) => {
+    const index = connectedUsers.findIndex(user => user.publicKey === publicKey);
     if (index !== -1) {
         const disconnectedUser = connectedUsers.splice(index, 1)[0];
         if (disconnectedUser && disconnectedUser.ws.readyState === WebSocket.OPEN) {
             disconnectedUser.ws.close();
         }
-        console.log(`User with ID ${userId} removed from connected users`);
 
         try {
-            await redisClient.del(`online:${userId}`);
-            await updateUserStatus(userId, false);
-            console.log(`User status updated to offline for userId: ${userId}`);
+            let userData = await redisClient.get(`user:${publicKey}`);
+            if (userData) {
+                let user = JSON.parse(userData);
+                user.online = false;
+                user.lastOnline = new Date();
+                await redisClient.setEx(`user:${publicKey}`, 300, JSON.stringify(user));
+            }
 
-            broadcastClients({ type: 'USER_DISCONNECTED', userId });
+            await updateUserStatus(publicKey, false);
+
+            broadcastClients({ type: 'USER_DISCONNECTED', publicKey });
         } catch (error) {
-            console.error(`Failed to update user status to offline for userId: ${userId}`, error);
+            console.error(`Failed to update user status to offline for publicKey: ${publicKey}`, error);
         }
     }
 };
-
-export default broadcastClients;

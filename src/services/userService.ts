@@ -12,7 +12,6 @@ export const createUser = async (
 
     if (!avatarUrl) {
         avatarUrl = await generateAvatar(publicKey);
-        console.log(`Аватарка сгенерирована для публичного ключа: ${publicKey}`);
     }
 
     const user = await User.create({
@@ -22,8 +21,6 @@ export const createUser = async (
         lastLogin: new Date(),
         lastOnline: new Date(),
     });
-
-    console.log('Пользователь создан:', publicKey);
 
     await redisClient.set(`user:${user.id}`, JSON.stringify(user), { EX: 3600 });
 
@@ -75,11 +72,8 @@ export const getUserByPublicKey = async (publicKey: string) => {
 
         const cachedUser = await redisClient.get(cacheKey);
         if (cachedUser) {
-            console.log(`💾 Отдаем пользователя ${publicKey} из Redis`);
             return JSON.parse(cachedUser);
         }
-
-        console.log(`🛢 Загружаем пользователя ${publicKey} из PostgreSQL`);
 
         const user = await User.findOne({ where: { public_key: publicKey } });
         if (!user) return null;
@@ -93,55 +87,31 @@ export const getUserByPublicKey = async (publicKey: string) => {
     }
 };
 
-export const updateUserStatus = async (userId: number, isOnline: boolean) => {
+export const updateUserStatus = async (publicKey: string, isOnline: boolean) => {
     try {
-        console.log(`Attempting to update user status for userId: ${userId}, online: ${isOnline}`);
+        console.log(`Updating user status in Redis -> publicKey: ${publicKey}, online: ${isOnline}`);
 
-        const cacheKey = `user:${userId}`;
+        const cacheKey = `user:${publicKey}`;
         let userData = await redisClient.get(cacheKey);
-
         let user;
 
         if (userData) {
             user = JSON.parse(userData);
-            // Если статус уже актуальный — не обновляем
-            if (user.online === isOnline) {
-                console.log(`User ${user.username} status already up-to-date: ${user.online}`);
-                return;
+            user.online = isOnline;
+
+            if (!isOnline) {
+                user.lastOnline = new Date();
             }
+
+            await redisClient.setEx(cacheKey, 300, JSON.stringify(user));
+            console.log(`✅ Redis updated -> user:${publicKey} | online: ${user.online}`);
         } else {
-            user = await User.findByPk(userId);
-            if (!user) {
-                console.error(`User with ID ${userId} not found`);
-                return;
-            }
-
-            user = {
-                id: user.id,
-                username: user.username,
-                online: user.online,
-                lastOnline: user.lastOnline,
-            };
+            console.error(`User with publicKey ${publicKey} not found in Redis`);
         }
-
-        // Обновляем статус
-        user.online = isOnline;
-        if (!isOnline) {
-            user.lastOnline = new Date();
-        }
-
-        // Сохраняем обновленные данные в Redis
-        await redisClient.setEx(cacheKey, 300, JSON.stringify(user));
-
-        // Обновляем статус в базе данных
-        await User.update(
-            { online: isOnline, lastOnline: user.lastOnline },
-            { where: { id: userId } }
-        );
-
-        console.log(`User ${user.username} status updated successfully to ${user.online}`);
     } catch (error) {
         console.error('Error updating user status:', error);
-        throw error;
     }
 };
+
+
+

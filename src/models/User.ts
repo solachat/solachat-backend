@@ -7,7 +7,7 @@ class User extends Model {
     public username!: string;
     public aboutMe?: string;
     public lastLogin!: Date;
-    public sharePublicKey!: boolean;
+    // public sharePublicKey!: boolean;
     public avatar?: string;
     public avatarHash!: string;
     public rating?: number;
@@ -44,11 +44,11 @@ User.init(
             type: DataTypes.DATE,
             allowNull: true,
         },
-        sharePublicKey: {
-            type: DataTypes.BOOLEAN,
-            allowNull: false,
-            defaultValue: false,
-        },
+        // sharePublicKey: {
+        //     type: DataTypes.BOOLEAN,
+        //     allowNull: false,
+        //     defaultValue: false,
+        // },
         avatar: {
             type: DataTypes.STRING,
             allowNull: true,
