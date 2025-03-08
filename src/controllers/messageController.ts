@@ -6,7 +6,8 @@ import {
     updateMessageContent
 } from '../services/messageService';
 import { UserRequest } from '../types/types';
-import { wss } from '../websocket';
+import {connectedUsers, wss} from '../websocket';
+import WebSocket from 'ws';
 import { decryptMessage, encryptMessage } from "../encryption/messageEncryption";
 import User from "../models/User";
 import Chat from "../models/Chat";
@@ -26,6 +27,41 @@ export const broadcastToClients = (type: string, payload: object) => {
     });
 };
 
+
+const broadcastToChatUsers = async (chatId: number, message: any) => {
+    try {
+        // Получаем участников чата
+        const chat = await Chat.findByPk(chatId, {
+            include: [{ model: User, as: 'users', attributes: ['public_key'] }]
+        });
+
+        if (!chat || !chat.users) {
+            console.error(`❌ Ошибка: Чат ${chatId} не найден или пуст.`);
+            return;
+        }
+
+        const chatUserPublicKeys = chat.users.map(user => user.public_key);
+
+        // Проверяем, есть ли WebSocket-соединение
+        if (!wss) {
+            console.error(`❌ Ошибка: WebSocket сервер не инициализирован.`);
+            return;
+        }
+
+        // Отправляем только участникам чата
+        connectedUsers.forEach(user => {
+            if (chatUserPublicKeys.includes(user.publicKey) && user.ws.readyState === WebSocket.OPEN) {
+                user.ws.send(JSON.stringify(message));
+            }
+        });
+
+        console.log(`📢 Сообщение отправлено участникам чата ${chatId}`);
+    } catch (error) {
+        console.error(`❌ Ошибка при отправке WebSocket-сообщения для чата ${chatId}:`, error);
+    }
+};
+
+
 export const sendMessageController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
     const { content } = req.body;
@@ -33,6 +69,7 @@ export const sendMessageController = async (req: Request, res: Response) => {
     let decryptedFilePath: string | null = null;
 
     try {
+        console.log(`📩 Получен запрос на отправку сообщения в чат ID: ${chatId}`);
         res.status(202).json({ message: "Message received, processing..." });
 
         setImmediate(async () => {
@@ -91,7 +128,7 @@ export const sendMessageController = async (req: Request, res: Response) => {
                         };
 
                         console.log(`📢 Отправляем уведомление о создании чата:`, chatWithUsers);
-                        broadcastToClients("chatCreated", { chat: chatWithUsers });
+                        await broadcastToChatUsers(chat.id, { type: "chatCreated", chat: chatWithUsers });
                     }
                 } catch (error) {
                     console.error("Ошибка при создании чата:", error);
@@ -133,7 +170,8 @@ export const sendMessageController = async (req: Request, res: Response) => {
 
             // 🔹 Отправляем сообщение клиентам
             console.time("Broadcast Message");
-            broadcastToClients("newMessage", {
+            await broadcastToChatUsers(chat.id, {
+                type: "newMessage",
                 message: {
                     ...message.toJSON(),
                     content: decryptedMessageContent || null,
@@ -150,8 +188,6 @@ export const sendMessageController = async (req: Request, res: Response) => {
         res.status(500).json({ message: "Ошибка при создании сообщения." });
     }
 };
-
-
 
 export const getMessagesController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
@@ -212,7 +248,8 @@ export const editMessageController = async (req: UserRequest, res: Response) => 
         // ❗️ Удаляем кеш сообщений чата
         await redisClient.del(`chat:${message.chatId}:messages`);
 
-        broadcastToClients('editMessage', {
+        await broadcastToChatUsers(message.chatId, {
+            type: 'editMessage',
             message: {
                 id: message.id,
                 content: content,
@@ -221,6 +258,7 @@ export const editMessageController = async (req: UserRequest, res: Response) => 
                 updatedAt: new Date().toISOString(),
             }
         });
+
 
         res.status(200).json({ message: 'Сообщение успешно обновлено.' });
     } catch (error) {
@@ -242,7 +280,8 @@ export const deleteMessageController = async (req: UserRequest, res: Response) =
         // ❗️ Очищаем кеш сообщений чата
         await redisClient.del(`chat:${message.chatId}:messages`);
 
-        broadcastToClients('deleteMessage', {
+        await broadcastToChatUsers(message.chatId, {
+            type: 'deleteMessage',
             messageId: Number(messageId),
         });
 
@@ -280,9 +319,11 @@ export const markMessageAsReadController = async (req: UserRequest, res: Respons
 
         await redisClient.del(`chat:${message.chatId}:messages`);
 
-        broadcastToClients('messageRead', {
+        await broadcastToChatUsers(message.chatId, {
+            type: 'messageRead',
             messageId: message.id,
         });
+
 
         res.status(200).json({ message: 'Статус прочтения обновлён.' });
     } catch (error) {

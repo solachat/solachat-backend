@@ -26,8 +26,8 @@ export const createMessage = async (
     });
     console.timeEnd('DB Write: Message');
 
-    const cacheKey = `chat:${chatId}:messages`;
-    await redisClient.del(cacheKey);
+    const userChatsCacheKey = `userChats:${userId}`;
+    await redisClient.del(userChatsCacheKey);
 
     return message;
 };
