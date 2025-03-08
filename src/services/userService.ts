@@ -45,7 +45,7 @@ export const getUserById = async (userId: number) => {
         if (!user) return null;
 
         const cacheKey = `user:${user.public_key}`;
-        await redisClient.set(cacheKey, JSON.stringify(user), { EX: 3600 });
+        await redisClient.set(cacheKey, JSON.stringify(user));
 
         return user;
     } catch (error) {
@@ -78,7 +78,7 @@ export const getUserByPublicKey = async (publicKey: string) => {
         const user = await User.findOne({ where: { public_key: publicKey } });
         if (!user) return null;
 
-        await redisClient.set(cacheKey, JSON.stringify(user), { EX: 3600 });
+        await redisClient.set(cacheKey, JSON.stringify(user));
 
         return user;
     } catch (error) {

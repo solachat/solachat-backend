@@ -26,35 +26,11 @@ export const createMessage = async (
     });
     console.timeEnd('DB Write: Message');
 
-    const cacheKey = `userChats:${userId}`;
-    const cachedChats = await redisClient.get(cacheKey);
-
-    if (cachedChats) {
-        const chats = JSON.parse(cachedChats);
-
-        const chatIndex = chats.findIndex((chat: any) => chat.id === chatId);
-        if (chatIndex !== -1) {
-            chats[chatIndex].messages.push({
-                ...message.toJSON(),
-                content,
-                attachment: null,
-                user: {
-                    id: user.id,
-                    username: user.username,
-                    public_key: user.public_key,
-                    avatar: user.avatar,
-                },
-            });
-
-            await redisClient.setEx(cacheKey, CHAT_CACHE_EXPIRY, JSON.stringify(chats));
-        } else {
-            await redisClient.del(cacheKey);
-        }
-    }
+    const cacheKey = `chat:${chatId}:messages`;
+    await redisClient.del(cacheKey);
 
     return message;
 };
-
 
 export const getMessages = async (chatId: number) => {
     const cacheKey = `chat:${chatId}:messages`;
@@ -76,10 +52,11 @@ export const getMessages = async (chatId: number) => {
     });
     console.timeEnd('DB Query: Messages');
 
-    await redisClient.set(cacheKey, JSON.stringify(messages), { EX: 600 });
+    await redisClient.setEx(cacheKey, 600, JSON.stringify(messages));
 
     return messages;
 };
+
 
 export const getMessageById = async (messageId: number) => {
     const cacheKey = `message:${messageId}`;
@@ -113,7 +90,26 @@ export const deleteMessageById = async (messageId: number, userId: number) => {
 
     await Message.destroy({ where: { id: messageId } });
 
+    const chatCacheKey = `chat:${message.chatId}:messages`;
+    await redisClient.del(chatCacheKey);
+
+    const messageCacheKey = `message:${messageId}`;
+    await redisClient.del(messageCacheKey);
+
+    broadcastToClients('deleteMessage', {
+        messageId: message.id,
+        chatId: message.chatId,
+    });
+
+    return true;
+};
+
+
+export const updateMessageContent = async (messageId: number, updates: { content: string; isEdited: boolean }, userId: number, decryptedContent: string) => {
+    await Message.update(updates, { where: { id: messageId } });
+
     const cacheKey = `userChats:${userId}`;
+
     const cachedChats = await redisClient.get(cacheKey);
 
     if (cachedChats) {
@@ -121,9 +117,10 @@ export const deleteMessageById = async (messageId: number, userId: number) => {
         let chatUpdated = false;
 
         chats.forEach((chat: any) => {
-            const originalLength = chat.messages.length;
-            chat.messages = chat.messages.filter((msg: any) => msg.id !== messageId);
-            if (chat.messages.length !== originalLength) {
+            const message = chat.messages.find((msg: any) => msg.id === messageId);
+            if (message) {
+                message.content = decryptedContent;
+                message.isEdited = updates.isEdited;
                 chatUpdated = true;
             }
         });
@@ -133,21 +130,13 @@ export const deleteMessageById = async (messageId: number, userId: number) => {
         }
     }
 
-    broadcastToClients('deleteMessage', {
-        messageId: message.id,
-        chatId: message.chatId,
-    });
-
-    const messageCacheKey = `message:${messageId}`;
-    await redisClient.del(messageCacheKey);
-
     return true;
 };
 
-export const updateMessageContent = async (messageId: number, updates: { content: string; isEdited: boolean }) => {
-    await Message.update(updates, { where: { id: messageId } });
 
-    const cacheKey = `message:${messageId}`;
-    await redisClient.del(cacheKey);
-};
+
+
+
+
+
 

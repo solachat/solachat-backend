@@ -33,50 +33,44 @@ const upsertUserChat = async (chatId: number, userId: number, role: 'owner' | 'm
     }
 };
 
+
 export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     try {
         if (user1Id === user2Id) {
-            const favoriteChat = await Chat.findOne({
-                where: { isGroup: false },
-                include: [
-                    {
-                        model: User,
-                        as: 'users',
-                        where: { id: user1Id },
-                        through: { attributes: [] },
-                    },
-                ],
-            });
-
-            if (favoriteChat) return favoriteChat;
+            throw new Error("Нельзя создать чат с самим собой");
         }
 
-        const chats = await Chat.findAll({
+        const existingChat = await Chat.findOne({
             where: { isGroup: false },
-            include: [{
-                model: User,
-                as: 'users',
-                where: { id: { [Op.in]: [user1Id, user2Id] } },
-                through: { attributes: [] },
-            }]
+            include: [
+                {
+                    model: UserChats,
+                    as: "userChats",
+                    where: {
+                        userId: { [Op.in]: [user1Id, user2Id] },
+                    },
+                },
+            ],
         });
 
-        const existingChat = chats.find(chat => {
-            const userIds = chat.users?.map(user => user.id) || [];
-            return userIds.includes(user1Id) && userIds.includes(user2Id) && userIds.length === 2;
-        });
-
-        if (existingChat) return existingChat;
+        if (existingChat) {
+            return existingChat;
+        }
 
         const newChat = await Chat.create({ isGroup: false, isFavorite: false });
-        const users = await findUsersByIds([user1Id, user2Id]);
-        await newChat.addUsers(users);
+
+        await UserChats.bulkCreate([
+            { chatId: newChat.id, userId: user1Id },
+            { chatId: newChat.id, userId: user2Id },
+        ]);
 
         return newChat;
     } catch (error) {
-        throw new Error('Не удалось создать приватный чат');
+        console.error("Ошибка при создании приватного чата:", error);
+        throw new Error("Не удалось создать приватный чат");
     }
 };
+
 
 export const createGroupChat = async (userIds: number[], chatName: string, creatorId: number, avatar?: string) => {
     try {
@@ -106,7 +100,7 @@ export const getChatById = async (chatId: number) => {
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'public_key', 'avatar', 'online', 'verified'],
+                    attributes: ['id', 'username', 'public_key', 'avatar', 'online', 'verified', 'online', 'lastOnline'],
                     through: { attributes: [] }
                 },
                 {
@@ -117,7 +111,7 @@ export const getChatById = async (chatId: number) => {
                         {
                             model: User,
                             as: 'user',
-                            attributes: ['id', 'username', 'public_key', 'avatar'],
+                            attributes: ['id', 'username', 'public_key', 'avatar', 'online', 'lastOnline'],
                         }
                     ]
                 }
@@ -148,10 +142,32 @@ export const getChatsForUser = async (userId: number) => {
         const cachedChats = await redisClient.get(cacheKey);
 
         if (cachedChats) {
-            console.log(`💾 Отдаем чаты пользователя ${userId} из Redis`);
             const parsedChats = JSON.parse(cachedChats);
 
+            // Если используете кэш, можно обновить данные пользователей из redis
             for (const chat of parsedChats) {
+                // Обновляем пользователей чата
+                chat.users = await Promise.all(
+                    (chat.users || []).map(async (user: any) => {
+                        const redisUserData = await redisClient.get(`user:${user.public_key}`);
+                        if (redisUserData) {
+                            const updatedUser = JSON.parse(redisUserData);
+                            return {
+                                ...user,
+                                online: updatedUser.online,
+                                lastOnline: updatedUser.lastOnline,
+                            };
+                        }
+                        return user;
+                    })
+                );
+
+                // Обновляем сообщения, если они закэшированы
+                const messageCacheKey = `message:${chat.id}`;
+                const cachedMessages = await redisClient.get(messageCacheKey);
+                if (cachedMessages) {
+                    chat.messages = JSON.parse(cachedMessages);
+                }
                 for (const message of chat.messages) {
                     if (message.fileId && !message.attachment) {
                         message.attachment = await handleFileAttachment(message.fileId);
@@ -167,7 +183,7 @@ export const getChatsForUser = async (userId: number) => {
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'public_key', 'avatar', 'online', 'verified'],
+                    attributes: ['id', 'username', 'public_key', 'avatar', 'online', 'verified', "lastOnline"],
                     through: { attributes: ['role'] },
                 },
                 {
@@ -175,7 +191,7 @@ export const getChatsForUser = async (userId: number) => {
                     as: 'messages',
                     attributes: ['id', 'content', 'fileId', 'createdAt', 'userId', 'isEdited', 'unread', 'isRead'],
                     include: [
-                        { model: User, as: 'user', attributes: ['username', 'public_key', 'avatar'] },
+                        { model: User, as: 'user', attributes: ['username', 'public_key', 'avatar', 'lastOnline', 'online'] },
                         { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] },
                     ],
                 },
@@ -190,45 +206,80 @@ export const getChatsForUser = async (userId: number) => {
         const userChats = chats.filter(chat => chat.users && chat.users.some(user => user.id === userId));
 
         const resultChats = await Promise.all(userChats.map(async (chat) => {
-            const messages = chat.messages
-                ? await Promise.all(chat.messages
-                    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-                    .map(async (message: Message) => {
-                        let decryptedContent = '';
-                        let attachment = null;
+            let messages = chat.messages
+                ? await Promise.all(
+                    chat.messages
+                        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+                        .map(async (message: Message) => {
+                            let decryptedContent = '';
+                            let attachment = null;
 
-                        try {
-                            decryptedContent = decryptMessage(JSON.parse(message.content));
-                        } catch (error) {
-                            console.error('Ошибка расшифровки сообщения:', error);
-                        }
+                            try {
+                                decryptedContent = decryptMessage(JSON.parse(message.content));
+                            } catch (error) {
+                                console.error('Ошибка расшифровки сообщения:', error);
+                            }
 
-                        if (message.fileId) {
-                            attachment = await handleFileAttachment(message.fileId);
-                        }
+                            if (message.fileId) {
+                                attachment = await handleFileAttachment(message.fileId);
+                            }
 
-                        return { ...message.toJSON(), content: decryptedContent, attachment };
-                    }))
+                            return { ...message.toJSON(), content: decryptedContent, attachment };
+                        })
+                )
                 : [];
+
+            const messageCacheKey = `message:${chat.id}`;
+            const cachedMessages = await redisClient.get(messageCacheKey);
+
+            if (cachedMessages) {
+                const parsedMessages = JSON.parse(cachedMessages);
+                messages = [
+                    ...messages,
+                    ...parsedMessages,
+                ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+            }
+
+            // Обновляем информацию о пользователях чата из redis
+            const updatedUsers = await Promise.all(
+                (chat.users || []).map(async (user: any) => {
+                    const redisUserData = await redisClient.get(`user:${user.public_key}`);
+                    if (redisUserData) {
+                        const updatedUser = JSON.parse(redisUserData);
+                        return {
+                            id: user.id,
+                            public_key: user.public_key,
+                            avatar: user.avatar,
+                            online: updatedUser.online,
+                            verified: user.verified,
+                            lastOnline: updatedUser.lastOnline,
+                            role: (user as any).UserChats?.role || 'member',
+                            username: user.username,
+                        };
+                    }
+                    return {
+                        id: user.id,
+                        public_key: user.public_key,
+                        avatar: user.avatar,
+                        online: user.online,
+                        verified: user.verified,
+                        lastOnline: user.lastOnline,
+                        role: (user as any).UserChats?.role || 'member',
+                        username: user.username,
+                    };
+                })
+            );
 
             return {
                 ...chat.toJSON(),
                 chatName: chat.isGroup
                     ? chat.name
-                    : chat.users?.find(u => u.id !== userId)?.username || 'Unknown',
-                users: (chat.users || []).map(user => ({
-                    id: user.id,
-                    public_key: user.public_key,
-                    avatar: user.avatar,
-                    online: user.online,
-                    verified: user.verified,
-                    role: (user as any).UserChats?.role || 'member',
-                })),
+                    : updatedUsers.find(u => u.id !== userId)?.username || 'Unknown',
+                users: updatedUsers,
                 messages,
             };
         }));
 
-        // Теперь всегда сохраняем ТОЛЬКО полные данные:
         await redisClient.setEx(cacheKey, CHAT_CACHE_EXPIRY, JSON.stringify(resultChats));
 
         return resultChats;
@@ -244,14 +295,12 @@ const handleFileAttachment = async (fileId: number) => {
     const cacheKey = `file:${fileId}`;
 
     try {
-        // Проверяем Redis
         const cachedFile = await redisClient.get(cacheKey);
         if (cachedFile) {
             console.log(`💾 Файл ${fileId} найден в Redis`);
             return JSON.parse(cachedFile);
         }
 
-        // Файл не найден в Redis – ищем в базе данных информацию
         const fileRecord = await file.findOne({ where: { id: fileId } });
 
         if (!fileRecord) {
@@ -259,24 +308,9 @@ const handleFileAttachment = async (fileId: number) => {
             return null;
         }
 
-        const encryptedFilePath = fileRecord.filePath;
-        const decryptedFilePath = encryptedFilePath.replace('.enc', '');
-
-        if (!fs.existsSync(encryptedFilePath)) {
-            console.error(`❌ Зашифрованный файл не найден: ${encryptedFilePath}`);
-            return { fileName: fileRecord.fileName, filePath: encryptedFilePath };
-        }
-
-        const encryptedBuffer = fs.readFileSync(encryptedFilePath);
-        console.log(`🔐 Расшифровка файла: ${encryptedFilePath}`);
-        const decryptedBuffer = await decryptFile(encryptedBuffer);
-
-        fs.writeFileSync(decryptedFilePath, decryptedBuffer);
-        console.log(`✅ Файл успешно расшифрован: ${decryptedFilePath}`);
-
         const fileData = {
             fileName: fileRecord.fileName,
-            filePath: decryptedFilePath,
+            filePath: fileRecord.filePath,
         };
 
         await redisClient.setEx(`file:${fileId}`, 3600, JSON.stringify(fileData));
@@ -294,7 +328,22 @@ export const deleteChat = async (chatId: number, userId: number, userRole: strin
     try {
         if (isGroup && userRole === 'member') {
             await UserChats.destroy({ where: { userId, chatId } });
+
+            await redisClient.del(`userChats:${userId}`);
+
             return;
+        }
+
+        const chatUsers = await UserChats.findAll({ where: { chatId } });
+
+        const userIds = chatUsers.map(userChat => userChat.userId);
+
+        await UserChats.destroy({ where: { chatId } });
+
+        if (userIds.length > 0) {
+            await Promise.all(userIds.map(async (userId) => {
+                await redisClient.del(`userChats:${userId}`);
+            }));
         }
 
         const messages = await Message.findAll({ where: { chatId } });
@@ -311,11 +360,13 @@ export const deleteChat = async (chatId: number, userId: number, userRole: strin
 
         await Message.destroy({ where: { chatId } });
         await file.destroy({ where: { chatId } });
+
         await Chat.destroy({ where: { id: chatId } });
+
     } catch (error) {
         throw new Error('Не удалось удалить чат');
     }
-};
+}
 
 export const assignRole = async (chatId: number, userId: number, role: 'admin' | 'member') => {
     const userChat = await UserChats.findOne({ where: { chatId, userId } });
@@ -380,7 +431,7 @@ export const getChatWithMessages = async (chatId: number, userId: number) => {
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'avatar', 'verified'],
+                    attributes: ['id', 'username', 'avatar', 'verified', 'online', 'lastOnline'],
                     through: { attributes: [] },
                     where: { id: userId }
                 },

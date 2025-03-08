@@ -197,18 +197,27 @@ export const getProfile = async (req: Request, res: Response) => {
 
         const isOwner = decoded.publicKey === user.public_key;
 
-        const { password, ...safeUserData } = user;
-
-        const responseData: any = {
-            ...safeUserData,
-            avatar: user.avatar,
-            isOwner,
-            aboutMe: user.aboutMe,
-            public_key: user.sharePublicKey || isOwner ? user.public_key : undefined,
-        };
-
-
-        res.json(responseData);
+        if (isOwner) {
+            const { password, ...safeUserData } = user;
+            res.json({
+                ...safeUserData,
+                avatar: user.avatar,
+                isOwner,
+                aboutMe: user.aboutMe,
+                public_key: user.sharePublicKey || isOwner ? user.public_key : undefined,
+            });
+        } else {
+            res.json({
+                avatar: user.avatar,
+                username: user.username,
+                aboutMe: user.aboutMe,
+                public_key: user.public_key,
+                verified: user.verified,
+                online: user.online,
+                lastLogin: user.lastLogin,
+                lastOnline: user.lastOnline,
+            });
+        }
     } catch (error) {
         console.error(`Profile fetch failed: ${error}`);
         res.status(401).json({ message: 'Invalid token' });
@@ -254,6 +263,7 @@ export const updateProfile = async (req: Request, res: Response) => {
         res.status(500).json({ error: 'Error updating profile', message: err.message });
     }
 };
+
 
 export const updateAvatar = async (req: UserRequest, res: Response) => {
     try {
@@ -367,7 +377,7 @@ export const searchUser = async (req: Request, res: Response) => {
                     { public_key: { [Op.iLike]: `%${searchTerm}%` } },
                 ],
             },
-            attributes: ['id', 'username', 'public_key', 'avatar', 'online', "verified"],
+            attributes: ['id', 'username', 'public_key', 'avatar', 'online', "verified", "lastOnline"],
         });
 
         res.status(200).json(users);

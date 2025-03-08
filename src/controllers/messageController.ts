@@ -12,6 +12,10 @@ import User from "../models/User";
 import Chat from "../models/Chat";
 import {createFile} from "../services/fileService";
 import Message from "../models/Message";
+import {fileQueue} from "../services/fileQueue";
+import redisClient from "../config/redisClient";
+import {callCreatePrivateChatController} from "../utils/utils";
+import {createPrivateChat} from "../services/chatService";
 
 export const broadcastToClients = (type: string, payload: object) => {
     const messagePayload = JSON.stringify({ type, ...payload });
@@ -22,90 +26,163 @@ export const broadcastToClients = (type: string, payload: object) => {
     });
 };
 
-export const sendMessageController = async (req: UserRequest, res: Response) => {
+export const sendMessageController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
     const { content } = req.body;
     let fileId: number | null = null;
     let decryptedFilePath: string | null = null;
 
     try {
-        res.status(202).json({ message: 'Message received, processing...' });
+        res.status(202).json({ message: "Message received, processing..." });
 
         setImmediate(async () => {
-            console.time('Message Processing');
+            console.time("Message Processing");
 
-            console.time('DB Query: User and Chat');
-            const [sender, chat] = await Promise.all([
-                User.findByPk(req.user!.id, { attributes: ['id', 'username', 'public_key', 'avatar', 'verified'] }),
-                Chat.findByPk(Number(chatId)),
-            ]);
-            console.timeEnd('DB Query: User and Chat');
+            console.time("DB Query: User and Chat");
+            const sender = await User.findByPk(req.user!.id, {
+                attributes: ["id", "username", "public_key", "avatar", "verified"],
+            });
 
-            const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-            if (files && files['file']) {
-                console.time('File Encryption and Save');
-                const file = files['file'][0];
-                const result = await createFile(file, req.user!.id, Number(chatId), true);
-                fileId = 'savedFile' in result ? result.savedFile.id : result.id;
-                decryptedFilePath = 'decryptedFilePath' in result ? result.decryptedFilePath : null;
-                console.timeEnd('File Encryption and Save');
+            let chat = await Chat.findByPk(Number(chatId));
+
+            console.timeEnd("DB Query: User and Chat");
+
+            if (!chat) {
+                console.log(`Чат ${chatId} не найден, создаем новый...`);
+
+                try {
+                    chat = await createPrivateChat(req.user!.id, Number(chatId));
+                    console.log(`✅ Новый чат создан: ${chat.id}`);
+
+                    // 🔹 Формируем данные о чате для отправки уведомления
+                    const user1 = await User.findByPk(req.user!.id, {
+                        attributes: ["id", "public_key", "avatar", "online"],
+                    });
+                    const user2 = await User.findByPk(Number(chatId), {
+                        attributes: ["id", "public_key", "avatar", "online"],
+                    });
+
+                    if (user1 && user2) {
+                        const chatWithUsers = {
+                            id: chat.id,
+                            isGroup: chat.isGroup,
+                            createdAt: chat.createdAt,
+                            updatedAt: chat.updatedAt,
+                            name: chat.name,
+                            avatar: chat.avatar,
+                            users: [
+                                {
+                                    id: user1.id,
+                                    public_key: user1.public_key,
+                                    avatar: user1.avatar,
+                                    online: user1.online,
+                                    lastOnline: user1.lastOnline,
+                                    verified: user1.verified,
+                                },
+                                {
+                                    id: user2.id,
+                                    public_key: user2.public_key,
+                                    avatar: user2.avatar,
+                                    online: user2.online,
+                                    lastOnline: user1.lastOnline,
+                                    verified: user2.verified,
+                                },
+                            ],
+                        };
+
+                        console.log(`📢 Отправляем уведомление о создании чата:`, chatWithUsers);
+                        broadcastToClients("chatCreated", { chat: chatWithUsers });
+                    }
+                } catch (error) {
+                    console.error("Ошибка при создании чата:", error);
+                    throw new Error("Не удалось создать чат перед отправкой сообщения.");
+                }
             }
 
-            console.time('DB Write: Message');
-            const message = await createMessage(
-                req.user!.id,
-                Number(chatId),
-                content || '',
-                fileId,
-                sender!
-            );
-            console.timeEnd('DB Write: Message');
+            // 🔹 Обработка файла (если он есть)
+            const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+            if (files?.file) {
+                console.time("File Queue: Adding File");
+                const file = files["file"][0];
 
-            console.time('Decrypt Message');
+                const job = await fileQueue.add({
+                    file,
+                    userId: req.user!.id,
+                    chatId: chat.id,
+                });
+
+                const result = await job.finished();
+                fileId = result.savedFile?.id || result.id;
+                decryptedFilePath = result.decryptedFilePath || null;
+                console.timeEnd("File Queue: Adding File");
+            }
+
+            // 🔹 Создание сообщения
+            console.time("DB Write: Message");
+            const message = await createMessage(req.user!.id, chat.id, content || "", fileId, sender!);
+            console.timeEnd("DB Write: Message");
+
+            console.time("Decrypt Message");
             const decryptedMessageContent = content ? decryptMessage(JSON.parse(message.content)) : null;
-            console.timeEnd('Decrypt Message');
+            console.timeEnd("Decrypt Message");
 
-            console.time('Broadcast Message');
-            broadcastToClients('newMessage', {
+            // ❗️ Очистка кеша перед broadcast
+            console.time("Redis: Deleting Cache");
+            await redisClient.del(`chat:${chat.id}:messages`);
+            console.timeEnd("Redis: Deleting Cache");
+
+            // 🔹 Отправляем сообщение клиентам
+            console.time("Broadcast Message");
+            broadcastToClients("newMessage", {
                 message: {
                     ...message.toJSON(),
                     content: decryptedMessageContent || null,
-                    attachment: fileId ? { fileName: files['file'][0].originalname, filePath: decryptedFilePath } : null,
+                    attachment: fileId ? { fileName: files["file"][0].originalname, filePath: decryptedFilePath } : null,
                     user: { id: sender!.id, username: sender!.username, avatar: sender!.avatar },
-                }
+                },
             });
-            console.timeEnd('Broadcast Message');
+            console.timeEnd("Broadcast Message");
 
-            console.timeEnd('Message Processing');
+            console.timeEnd("Message Processing");
         });
     } catch (error) {
-        console.error('Ошибка при создании сообщения:', error);
-        res.status(500).json({ message: 'Ошибка при создании сообщения.' });
+        console.error("Ошибка при создании сообщения:", error);
+        res.status(500).json({ message: "Ошибка при создании сообщения." });
     }
 };
+
 
 
 export const getMessagesController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
 
     try {
+        const cacheKey = `chat:${chatId}:messages`;
+        const cachedMessages = await redisClient.get(cacheKey);
+
+        if (cachedMessages) {
+            console.log(`💾 Отдаем сообщения чата ${chatId} из Redis`);
+            return res.status(200).json(JSON.parse(cachedMessages));
+        }
+
         const messages = await getMessages(Number(chatId));
 
         const decryptedMessages = messages.map((message: Message) => {
-            const messageData = typeof message.toJSON === 'function' ? message.toJSON() : message;
-
             return {
-                ...messageData,
+                ...message.toJSON(),
                 content: message.content ? decryptMessage(JSON.parse(message.content)) : null
             };
         });
+
+        await redisClient.setEx(cacheKey, 600, JSON.stringify(decryptedMessages)); // Сохраняем в кеш
 
         res.status(200).json(decryptedMessages);
     } catch (error) {
         console.error('Error getting messages:', error);
         res.status(500).json({ message: 'Ошибка при получении сообщений.' });
     }
-}
+};
+
 
 export const editMessageController = async (req: UserRequest, res: Response) => {
     const { messageId } = req.params;
@@ -124,12 +201,21 @@ export const editMessageController = async (req: UserRequest, res: Response) => 
         }
 
         const encryptedContent = encryptMessage(content);
-        await updateMessageContent(Number(messageId), { content: JSON.stringify(encryptedContent), isEdited: true });
+
+        await updateMessageContent(
+            Number(messageId),
+            { content: JSON.stringify(encryptedContent), isEdited: true },
+            req.user!.id,
+            content
+        );
+
+        // ❗️ Удаляем кеш сообщений чата
+        await redisClient.del(`chat:${message.chatId}:messages`);
 
         broadcastToClients('editMessage', {
             message: {
                 id: message.id,
-                content: decryptMessage(encryptedContent),
+                content: content,
                 isEdited: true,
                 chatId: message.chatId,
                 updatedAt: new Date().toISOString(),
@@ -143,11 +229,18 @@ export const editMessageController = async (req: UserRequest, res: Response) => 
     }
 };
 
+
 export const deleteMessageController = async (req: UserRequest, res: Response) => {
     const { messageId } = req.params;
 
     try {
+        const message = await getMessageById(Number(messageId));
+        if (!message) return res.status(404).json({ message: 'Сообщение не найдено.' });
+
         await deleteMessageById(Number(messageId), req.user!.id);
+
+        // ❗️ Очищаем кеш сообщений чата
+        await redisClient.del(`chat:${message.chatId}:messages`);
 
         broadcastToClients('deleteMessage', {
             messageId: Number(messageId),
@@ -169,6 +262,7 @@ export const deleteMessageController = async (req: UserRequest, res: Response) =
     }
 };
 
+
 export const markMessageAsReadController = async (req: UserRequest, res: Response) => {
     console.log('Received params:', req.params);
     console.log('Received body:', req.body);
@@ -183,6 +277,8 @@ export const markMessageAsReadController = async (req: UserRequest, res: Respons
         if (!message) return res.status(404).json({ message: 'Сообщение не найдено.' });
 
         await Message.update({ isRead }, { where: { id: messageIdNumber } });
+
+        await redisClient.del(`chat:${message.chatId}:messages`);
 
         broadcastToClients('messageRead', {
             messageId: message.id,
