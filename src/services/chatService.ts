@@ -293,7 +293,6 @@ export const getChatsForUser = async (userId: number) => {
 };
 
 
-
 const normalizeFilePath = (filePath: string): string => {
     filePath = filePath.replace(/\\/g, "/");
 
