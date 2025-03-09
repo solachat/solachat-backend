@@ -11,16 +11,14 @@ export const createMessage = async (
     userId: number,
     chatId: number,
     content: string,
-    fileId: number | null,
+    fileId: number | null
 ) => {
-    const encryptedContent = encryptMessage(content);
-
     const timestamp = new Date().toISOString();
 
     const message = await Message.create({
         chatId,
         userId,
-        content: JSON.stringify(encryptedContent),
+        content,
         fileId: fileId || undefined,
         timestamp,
         createdAt: timestamp,

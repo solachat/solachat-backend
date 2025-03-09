@@ -3,6 +3,7 @@ import Chat from './Chat';
 import Message from './Message';
 import File from './File';
 import UserChats from './UserChats';
+import Session from "./Session";
 
 export const defineAssociations = () => {
     // 🔹 Связь "многие ко многим" (Чат ↔ Пользователи)
@@ -82,4 +83,7 @@ export const defineAssociations = () => {
         onDelete: 'CASCADE',
         onUpdate: 'CASCADE',
     });
+    Chat.hasOne(Session, { foreignKey: "chatId", as: "session" });
+    Session.belongsTo(Chat, { foreignKey: "chatId", as: "chat" });
+
 };

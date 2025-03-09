@@ -12,6 +12,7 @@ import './models/associations';
 import downloadRoutes from './routes/fileRoutes';
 import fileRoutes from './routes/fileRoutes';
 import redisClient from './config/redisClient';
+import sessionRoutes from "./routes/sessionRoutes";
 
 const app = express();
 
@@ -39,6 +40,7 @@ app.use(express.json());
 
 // app.use('/api/calls', callRoutes);
 app.use('/api', walletRoutes);
+app.use("/api/session", sessionRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/tokens', tokenRoutes);
 app.use('/api/chats', chatRoutes);

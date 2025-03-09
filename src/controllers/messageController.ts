@@ -76,13 +76,14 @@ const normalizeFilePath = (filePath: string) => filePath.replace(/\\/g, "/");
 
 export const sendMessageController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
-    const { content, tempId } = req.body;
+    const { content, tempId } = req.body; // content уже зашифрован на клиенте
     let fileId: number | null = null;
-    let decryptedFilePath: string | null = null;
+    let decryptedFilePath: string | null = null; // Этот параметр используется для файлов
 
     try {
         console.log(`📩 Получен запрос на отправку сообщения в чат ID: ${chatId}`);
 
+        // Отправляем быстрый ответ клиенту (202 Accepted)
         console.log("Отвечаю 202!");
         res.status(202).json({
             message: "Message received, processing...",
@@ -90,7 +91,7 @@ export const sendMessageController = async (req: Request, res: Response) => {
             createdAt: new Date().toISOString(),
         });
 
-        // ✅ ВЫПОЛНЯЕМ АСИНХРОННО В ФОНОВОМ РЕЖИМЕ
+        // Выполняем фоновую обработку
         void (async () => {
             console.time("Message Processing");
 
@@ -112,7 +113,6 @@ export const sendMessageController = async (req: Request, res: Response) => {
 
             if (!chat) {
                 console.log(`Чат ${chatId} не найден, создаем новый...`);
-
                 try {
                     chat = await createPrivateChat(req.user!.id, Number(chatId));
                     console.log(`✅ Новый чат создан: ${chat.id}`);
@@ -165,39 +165,27 @@ export const sendMessageController = async (req: Request, res: Response) => {
                                 },
                             ],
                         };
-                        console.log(
-                            "📢 Отправляем уведомление о создании чата: ",
-                            chatWithUsers
-                        );
-                        await broadcastToChatUsers(chat.id, {
-                            type: "chatCreated",
-                            chat: chatWithUsers,
-                        });
+                        console.log("📢 Отправляем уведомление о создании чата:", chatWithUsers);
+                        await broadcastToChatUsers(chat.id, { type: "chatCreated", chat: chatWithUsers });
                     }
                 } catch (error) {
                     console.error("Ошибка при создании чата:", error);
-                    throw new Error(
-                        "Не удалось создать чат перед отправкой сообщения."
-                    );
+                    throw new Error("Не удалось создать чат перед отправкой сообщения.");
                 }
             }
 
-            // 🔹 Обработка файла (если есть)
-            const files = req.files as {
-                [fieldname: string]: Express.Multer.File[];
-            };
+            // Обработка файла (если есть)
+            const files = req.files as { [fieldname: string]: Express.Multer.File[] };
             if (files?.file) {
                 console.time("File Queue: Adding File");
                 const file = files["file"][0];
-
-                // Генерируем уникальное имя для файла
                 const uniqueFileName = generateUniqueFileName(file.originalname);
 
                 const job = await fileQueue.add({
                     file,
                     userId: req.user!.id,
                     chatId: chat.id,
-                    uniqueFileName, // Передаем уникальное имя
+                    uniqueFileName,
                 });
 
                 const result = await job.finished();
@@ -211,9 +199,10 @@ export const sendMessageController = async (req: Request, res: Response) => {
                 }
             }
 
-            // 🔹 Создание сообщения
+            // Здесь входящий content уже зашифрован на клиенте.
+            // Создаем сообщение в БД, сохраняя ciphertext.
             console.time("DB Write: Message");
-            const message = await createMessage(
+            const messageRecord = await createMessage(
                 req.user!.id,
                 chat.id,
                 content || "",
@@ -221,47 +210,39 @@ export const sendMessageController = async (req: Request, res: Response) => {
             );
             console.timeEnd("DB Write: Message");
 
-            console.time("Decrypt Message");
-            const decryptedMessageContent = content
-                ? decryptMessage(JSON.parse(message.content))
-                : null;
-            console.timeEnd("Decrypt Message");
-
-            // ❗️ Очистка кеша перед broadcast
+            // Очистка кеша перед broadcast
             console.time("Redis: Deleting Cache");
             await redisClient.del(`chat:${chat.id}:messages`);
             console.timeEnd("Redis: Deleting Cache");
 
-            // 🛠 Фиксим путь к файлу перед отправкой в WebSocket
-            const finalFilePath = decryptedFilePath
-                ? normalizeFilePath(decryptedFilePath)
-                : null;
-            if (!finalFilePath) {
+            const finalFilePath = decryptedFilePath ? normalizeFilePath(decryptedFilePath) : null;
+            if (fileId && !finalFilePath) {
                 console.error("❌ Ошибка: Файл не был корректно обработан!");
             }
 
             console.time("Broadcast Message");
             console.log("📢 Отправляем WebSocket-сообщение:", {
-                id: message.id,
+                id: messageRecord.id,
                 tempId,
                 chatId: chat.id,
-                content: decryptedMessageContent,
+                content, // ciphertext передается клиенту, который расшифрует
                 attachment: fileId
                     ? {
                         fileName: files["file"][0].originalname,
-                        filePath: finalFilePath,
+                        fileType: files["file"][0].mimetype,
+                        filePath: finalFilePath ? `${BASE_URL}/${finalFilePath}` : null,
                     }
                     : null,
-                createdAt: message.timestamp,
+                createdAt: messageRecord.timestamp,
             });
 
             await broadcastToChatUsers(chat.id, {
                 type: "newMessage",
                 message: {
-                    ...message.toJSON(),
+                    ...messageRecord.toJSON(),
                     tempId,
-                    createdAt: message.timestamp,
-                    content: decryptedMessageContent || null,
+                    createdAt: messageRecord.timestamp,
+                    content, // ciphertext
                     attachment: fileId
                         ? {
                             fileName: files["file"][0].originalname,
