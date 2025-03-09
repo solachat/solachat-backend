@@ -62,26 +62,33 @@ const broadcastToChatUsers = async (chatId: number, message: any) => {
 };
 
 
+
 export const sendMessageController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
-    const { content } = req.body;
+    const { content, tempId } = req.body;
     let fileId: number | null = null;
     let decryptedFilePath: string | null = null;
 
     try {
         console.log(`📩 Получен запрос на отправку сообщения в чат ID: ${chatId}`);
-        res.status(202).json({ message: "Message received, processing..." });
 
-        setImmediate(async () => {
+        console.log('Отвечаю 202!')
+        res.status(202).json({
+            message: "Message received, processing...",
+            tempId: req.body.tempId,
+            createdAt: new Date().toISOString()
+        });
+
+        // ✅ ВЫПОЛНЯЕМ АСИНХРОННО В ФОНОВОМ РЕЖИМЕ
+        void (async () => {
             console.time("Message Processing");
 
             console.time("DB Query: User and Chat");
             const sender = await User.findByPk(req.user!.id, {
-                attributes: ["id", "username", "public_key", "avatar", "verified"],
+                attributes: ["id", "username", "public_key", "avatar", "verified", "online", "lastOnline"],
             });
 
             let chat = await Chat.findByPk(Number(chatId));
-
             console.timeEnd("DB Query: User and Chat");
 
             if (!chat) {
@@ -91,12 +98,11 @@ export const sendMessageController = async (req: Request, res: Response) => {
                     chat = await createPrivateChat(req.user!.id, Number(chatId));
                     console.log(`✅ Новый чат создан: ${chat.id}`);
 
-                    // 🔹 Формируем данные о чате для отправки уведомления
                     const user1 = await User.findByPk(req.user!.id, {
-                        attributes: ["id", "public_key", "avatar", "online"],
+                        attributes: ["id", "public_key", "avatar", "online", "lastOnline", "verified"],
                     });
                     const user2 = await User.findByPk(Number(chatId), {
-                        attributes: ["id", "public_key", "avatar", "online"],
+                        attributes: ["id", "public_key", "avatar", "online", "lastOnline", "verified"],
                     });
 
                     if (user1 && user2) {
@@ -114,20 +120,19 @@ export const sendMessageController = async (req: Request, res: Response) => {
                                     avatar: user1.avatar,
                                     online: user1.online,
                                     lastOnline: user1.lastOnline,
-                                    verified: user1.verified,
+                                    verified: user1.verified
                                 },
                                 {
                                     id: user2.id,
                                     public_key: user2.public_key,
                                     avatar: user2.avatar,
                                     online: user2.online,
-                                    lastOnline: user1.lastOnline,
-                                    verified: user2.verified,
+                                    lastOnline: user2.lastOnline,
+                                    verified: user2.verified
                                 },
                             ],
                         };
-
-                        console.log(`📢 Отправляем уведомление о создании чата:`, chatWithUsers);
+                        console.log("📢 Отправляем уведомление о создании чата: ", chatWithUsers);
                         await broadcastToChatUsers(chat.id, { type: "chatCreated", chat: chatWithUsers });
                     }
                 } catch (error) {
@@ -136,18 +141,13 @@ export const sendMessageController = async (req: Request, res: Response) => {
                 }
             }
 
-            // 🔹 Обработка файла (если он есть)
+            // 🔹 Обработка файла (если есть)
             const files = req.files as { [fieldname: string]: Express.Multer.File[] };
             if (files?.file) {
                 console.time("File Queue: Adding File");
                 const file = files["file"][0];
 
-                const job = await fileQueue.add({
-                    file,
-                    userId: req.user!.id,
-                    chatId: chat.id,
-                });
-
+                const job = await fileQueue.add({ file, userId: req.user!.id, chatId: chat.id });
                 const result = await job.finished();
                 fileId = result.savedFile?.id || result.id;
                 decryptedFilePath = result.decryptedFilePath || null;
@@ -156,7 +156,7 @@ export const sendMessageController = async (req: Request, res: Response) => {
 
             // 🔹 Создание сообщения
             console.time("DB Write: Message");
-            const message = await createMessage(req.user!.id, chat.id, content || "", fileId, sender!);
+            const message = await createMessage(req.user!.id, chat.id, content || "", fileId);
             console.timeEnd("DB Write: Message");
 
             console.time("Decrypt Message");
@@ -168,26 +168,50 @@ export const sendMessageController = async (req: Request, res: Response) => {
             await redisClient.del(`chat:${chat.id}:messages`);
             console.timeEnd("Redis: Deleting Cache");
 
-            // 🔹 Отправляем сообщение клиентам
+            // 🛠 Фиксим путь к файлу перед отправкой в WebSocket
+            const normalizeFilePath = (filePath: string) => filePath.replace(/\\/g, '/');
+
             console.time("Broadcast Message");
+            console.log("📢 Отправляем WebSocket-сообщение:", {
+                id: message.id,
+                tempId,
+                chatId: chat.id,
+                content: decryptedMessageContent,
+                createdAt: message.timestamp
+            });
+
             await broadcastToChatUsers(chat.id, {
                 type: "newMessage",
                 message: {
                     ...message.toJSON(),
+                    tempId,
+                    createdAt: message.timestamp,
                     content: decryptedMessageContent || null,
-                    attachment: fileId ? { fileName: files["file"][0].originalname, filePath: decryptedFilePath } : null,
-                    user: { id: sender!.id, username: sender!.username, avatar: sender!.avatar },
+                    attachment: fileId
+                        ? {
+                            fileName: decodeURIComponent(files["file"][0].originalname),  // ✅ Фиксим кодировку
+                            filePath: normalizeFilePath(decryptedFilePath || ''),  // ✅ Фиксим путь
+                        }
+                        : null,
+                    user: {
+                        id: sender!.id,
+                        public_key: sender!.public_key,
+                        avatar: sender!.avatar,
+                        online: sender!.online,
+                        lastOnline: sender!.lastOnline
+                    },
                 },
             });
             console.timeEnd("Broadcast Message");
 
             console.timeEnd("Message Processing");
-        });
+        })(); // ✅ ВЫЗЫВАЕМ ФУНКЦИЮ НЕМЕДЛЕННО
     } catch (error) {
         console.error("Ошибка при создании сообщения:", error);
         res.status(500).json({ message: "Ошибка при создании сообщения." });
     }
 };
+
 
 export const getMessagesController = async (req: Request, res: Response) => {
     const { chatId } = req.params;

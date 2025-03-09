@@ -12,19 +12,19 @@ export const createMessage = async (
     chatId: number,
     content: string,
     fileId: number | null,
-    user: User
 ) => {
     const encryptedContent = encryptMessage(content);
 
-    console.time('DB Write: Message');
+    const timestamp = new Date().toISOString();
+
     const message = await Message.create({
         chatId,
         userId,
         content: JSON.stringify(encryptedContent),
         fileId: fileId || undefined,
-        timestamp: new Date().toISOString(),
+        timestamp,
+        createdAt: timestamp,
     });
-    console.timeEnd('DB Write: Message');
 
     const userChatsCacheKey = `userChats:${userId}`;
     await redisClient.del(userChatsCacheKey);
@@ -104,7 +104,6 @@ export const deleteMessageById = async (messageId: number, userId: number) => {
     return true;
 };
 
-
 export const updateMessageContent = async (messageId: number, updates: { content: string; isEdited: boolean }, userId: number, decryptedContent: string) => {
     await Message.update(updates, { where: { id: messageId } });
 
@@ -129,7 +128,6 @@ export const updateMessageContent = async (messageId: number, updates: { content
             await redisClient.setEx(cacheKey, 3600, JSON.stringify(chats));
         }
     }
-
     return true;
 };
 

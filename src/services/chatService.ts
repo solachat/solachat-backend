@@ -9,7 +9,8 @@ import UserChats from "../models/UserChats";
 import redisClient from "../config/redisClient";
 
 const CHAT_CACHE_EXPIRY = 60 * 5;
-const MESSAGE_CACHE_EXPIRY = 60 * 3;
+const isProduction = process.env.NODE_ENV === "production";
+const BASE_URL = isProduction ? process.env.BASE_URL || "https://example.com" : "http://localhost:4000";
 
 const findUsersByIds = async (userIds: number[]) => {
     const users = await User.findAll({ where: { id: userIds } });
@@ -162,28 +163,18 @@ export const getChatsForUser = async (userId: number) => {
             console.log(`📩 Загружены чаты из кэша для userId=${userId}`);
             let chats = JSON.parse(cachedChats);
 
-            chats = await Promise.all(chats.map(async (chat: any) => {
-                if (chat.users && Array.isArray(chat.users)) {
-                    chat.users = await Promise.all(
-                        chat.users.map(async (user: any) => {
-                            const redisUserData = await redisClient.get(`user:${user.public_key}`);
-                            if (redisUserData) {
-                                const updatedUser = JSON.parse(redisUserData);
-                                return {
-                                    ...user,
-                                    online: updatedUser.online,
-                                    lastOnline: updatedUser.lastOnline,
-                                    avatar: updatedUser.avatar || user.avatar,
-                                };
-                            }
-                            return user;
-                        })
-                    );
+            for (const chat of chats) {
+                for (const message of chat.messages) {
+                    if (message.fileId && !message.attachment) {
+                        message.attachment = await handleFileAttachment(message.fileId);
+                    }
                 }
-                return chat;
-            }));
+            }
+
+            return chats;
         }
-            console.log(`🔄 Чаты для userId=${userId} не найдены в кэше, загружаем из базы...`);
+
+        console.log(`🔄 Чаты для userId=${userId} не найдены в кэше, загружаем из базы...`);
 
         const chats = await Chat.findAll({
             include: [
@@ -199,7 +190,7 @@ export const getChatsForUser = async (userId: number) => {
                     attributes: ['id', 'content', 'fileId', 'createdAt', 'userId', 'isEdited', 'unread', 'isRead'],
                     include: [
                         { model: User, as: 'user', attributes: ['username', 'public_key', 'avatar', 'lastOnline', 'online'] },
-                        { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] },
+                        { model: file, as: 'attachment', attributes: ['id', 'fileName', 'filePath'] },
                     ],
                 },
             ],
@@ -222,7 +213,7 @@ export const getChatsForUser = async (userId: number) => {
                 try {
                     const parsedMessages = JSON.parse(cachedMessages);
                     if (Array.isArray(parsedMessages)) {
-                        messages = parsedMessages.map((msg: any) => new Message(msg));
+                        messages = parsedMessages.map((msg: any) => Object.assign(new Message(), msg)); // ✅ Исправлено
                     }
                 } catch (error) {
                     console.error("❌ Ошибка при разборе кэша сообщений:", error);
@@ -237,12 +228,11 @@ export const getChatsForUser = async (userId: number) => {
                     attributes: ['id', 'content', 'fileId', 'createdAt', 'userId', 'isEdited', 'unread', 'isRead'],
                     include: [
                         { model: User, as: 'user', attributes: ['username', 'public_key', 'avatar', 'lastOnline', 'online'] },
-                        { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] },
+                        { model: file, as: 'attachment', attributes: ['id', 'fileName', 'filePath'] },
                     ],
                     order: [['createdAt', 'ASC']], // сообщения отсортированы от старых к новым
                 });
 
-                // Расшифровка сообщений
                 messages = await Promise.all(dbMessages.map(async (message) => {
                     let decryptedContent = '';
                     try {
@@ -251,12 +241,12 @@ export const getChatsForUser = async (userId: number) => {
                         console.error('❌ Ошибка расшифровки сообщения:', error);
                     }
 
-                    let attachment = null;
-                    if (message.fileId) {
+                    let attachment = message.attachment ? message.attachment.toJSON() : null;
+                    if (message.fileId && !attachment) {
                         attachment = await handleFileAttachment(message.fileId);
                     }
 
-                    return new Message({
+                    return Object.assign(new Message(), { // ✅ Исправлено
                         ...message.toJSON(),
                         content: decryptedContent,
                         attachment,
@@ -266,48 +256,27 @@ export const getChatsForUser = async (userId: number) => {
                 await redisClient.setEx(messageCacheKey, 300, JSON.stringify(messages));
             }
 
-            const updatedUsers = chat.users
-                ? await Promise.all(chat.users.map(async (user: any) => {
-                    const redisUserData = await redisClient.get(`user:${user.public_key}`);
-                    if (redisUserData) {
-                        const updatedUser = JSON.parse(redisUserData);
-                        return {
-                            id: user.id,
-                            public_key: user.public_key,
-                            avatar: user.avatar,
-                            online: updatedUser.online,
-                            verified: user.verified,
-                            lastOnline: updatedUser.lastOnline,
-                            role: (user as any).UserChats?.role || 'member',
-                            username: user.username,
-                        };
-                    }
-                    return {
-                        id: user.id,
-                        public_key: user.public_key,
-                        avatar: user.avatar,
-                        online: user.online,
-                        verified: user.verified,
-                        lastOnline: user.lastOnline,
-                        role: (user as any).UserChats?.role || 'member',
-                        username: user.username,
-                    };
-                }))
-                : [];
-
             return {
                 ...chat.toJSON(),
-                chatName: chat.isGroup ? chat.name : updatedUsers.find((u: any) => u.id !== userId)?.username || 'Unknown',
-                users: updatedUsers,
+                chatName: chat.isGroup ? chat.name : chat.users?.find(u => u.id !== userId)?.username || 'Unknown',
+                users: (chat.users ?? []).map(user => ({
+                    id: user.id,
+                    public_key: user.public_key,
+                    avatar: user.avatar,
+                    online: user.online,
+                    lastOnline: user.lastOnline,
+                    verified: user.verified,
+                    role: (user as any).UserChats?.role || 'member',
+                })),
                 messages,
             };
         }));
 
         resultChats.sort((a: any, b: any) => {
-            const aLastDate = (a.messages && a.messages.length > 0)
+            const aLastDate = a.messages.length
                 ? new Date(a.messages[a.messages.length - 1].createdAt ?? a.updatedAt)
                 : new Date(a.updatedAt);
-            const bLastDate = (b.messages && b.messages.length > 0)
+            const bLastDate = b.messages.length
                 ? new Date(b.messages[b.messages.length - 1].createdAt ?? b.updatedAt)
                 : new Date(b.updatedAt);
             return bLastDate.getTime() - aLastDate.getTime();
@@ -317,7 +286,6 @@ export const getChatsForUser = async (userId: number) => {
 
         console.log(`📩 Успешно загружены чаты для userId=${userId}, всего: ${resultChats.length}`);
         return resultChats;
-
     } catch (error) {
         console.error('❌ Ошибка при получении чатов для пользователя:', error);
         throw new Error('Не удалось получить чаты для пользователя');
@@ -326,6 +294,15 @@ export const getChatsForUser = async (userId: number) => {
 
 
 
+const normalizeFilePath = (filePath: string): string => {
+    filePath = filePath.replace(/\\/g, "/");
+
+    if (!filePath.startsWith("http")) {
+        return `${BASE_URL}${filePath.startsWith("/") ? "" : "/"}${filePath}`;
+    }
+
+    return filePath;
+};
 
 const handleFileAttachment = async (fileId: number) => {
     const cacheKey = `file:${fileId}`;
@@ -333,31 +310,38 @@ const handleFileAttachment = async (fileId: number) => {
     try {
         const cachedFile = await redisClient.get(cacheKey);
         if (cachedFile) {
-            console.log(`💾 Файл ${fileId} найден в Redis`);
-            return JSON.parse(cachedFile);
+            const parsedFile = JSON.parse(cachedFile);
+            parsedFile.filePath = normalizeFilePath(parsedFile.filePath);
+            console.log(`💾 Файл ${fileId} найден в Redis:`, parsedFile);
+            return parsedFile;
         }
 
+        console.log(`🔍 Поиск файла ID=${fileId} в БД...`);
         const fileRecord = await file.findOne({ where: { id: fileId } });
 
         if (!fileRecord) {
-            console.error(`❌ Файл не найден в базе: ID ${fileId}`);
+            console.error(`❌ Файл не найден в БД: ID ${fileId}`);
             return null;
         }
 
+        console.log(`✅ Файл найден в БД:`, fileRecord);
+
         const fileData = {
+            id: fileRecord.id,
             fileName: fileRecord.fileName,
-            filePath: fileRecord.filePath,
+            filePath: normalizeFilePath(fileRecord.filePath),
         };
 
-        await redisClient.setEx(`file:${fileId}`, 3600, JSON.stringify(fileData));
-        console.log(`💾 Файл ${fileId} сохранен в Redis`);
+        console.log(`💾 Сохранение исправленного пути файла в Redis:`, fileData);
+        await redisClient.setEx(cacheKey, 3600, JSON.stringify(fileData));
 
         return fileData;
     } catch (error) {
-        console.error(`❌ Ошибка при обработке файла: ${(error as Error).message}`);
+        console.error(`❌ Ошибка при обработке файла ID ${fileId}: ${(error as Error).message}`);
         return null;
     }
 };
+
 
 
 export const deleteChat = async (chatId: number, userId: number, userRole: string, isGroup: boolean) => {
