@@ -1,42 +1,38 @@
-import multer, { FileFilterCallback } from 'multer';
-import path from 'path';
-import fs from 'fs';
-import { UserRequest } from '../types/types';
+import multer, { FileFilterCallback } from "multer";
+import path from "path";
+import fs from "fs";
+import { UserRequest } from "../types/types";
 
 const ensureDirectoryExists = (dir: string) => {
     if (!fs.existsSync(dir)) {
-        console.log(`Каталог ${dir} не существует. Создаем...`);
+        console.log(`📁 Каталог ${dir} не существует. Создаем...`);
         fs.mkdirSync(dir, { recursive: true });
     }
 };
 
+// Функция для определения папки сохранения файла по его расширению
 const getDestination = (fileExtension: string) => {
-    switch (fileExtension) {
-        case 'jpeg':
-        case 'jpg':
-        case 'png':
-        case 'gif':
-            return 'uploads/images';
-        case 'pdf':
-        case 'doc':
-        case 'docx':
-        case 'txt':
-            return 'uploads/documents';
-        case 'mp4':
-        case 'avi':
-        case 'mov':
-            return 'uploads/videos';
-        case 'mp3':
-        case 'wav':
-            return 'uploads/audio';
-        case 'zip':
-        case 'rar':
-            return 'uploads/archives';
-        default:
-            return 'uploads/others';
-    }
+    const destinations: { [key: string]: string } = {
+        jpeg: "uploads/images",
+        jpg: "uploads/images",
+        png: "uploads/images",
+        gif: "uploads/images",
+        pdf: "uploads/documents",
+        doc: "uploads/documents",
+        docx: "uploads/documents",
+        txt: "uploads/documents",
+        mp4: "uploads/videos",
+        avi: "uploads/videos",
+        mov: "uploads/videos",
+        mp3: "uploads/audio",
+        wav: "uploads/audio",
+        zip: "uploads/archives",
+        rar: "uploads/archives",
+    };
+    return destinations[fileExtension] || "uploads/others";
 };
 
+// Определение хранилища для файлов Multer
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         const fileExtension = path.extname(file.originalname).toLowerCase().slice(1);
@@ -46,35 +42,42 @@ const storage = multer.diskStorage({
         cb(null, destinationPath);
     },
     filename: (req, file, cb) => {
-        const safeFileName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-        const destinationPath = getDestination(path.extname(safeFileName).toLowerCase().slice(1));
+        const fileExtension = path.extname(file.originalname).toLowerCase();
+        const baseName = path.basename(file.originalname, fileExtension);
+        const safeFileName = `${baseName}-${Date.now()}${fileExtension}`;
 
-        const fullPath = path.join(destinationPath, safeFileName);
-
-        if (fs.existsSync(fullPath)) {
-            const uniqueSuffix = Date.now();
-            const newFileName = `${path.basename(safeFileName, path.extname(safeFileName))}-${uniqueSuffix}${path.extname(safeFileName)}`;
-            cb(null, newFileName);
-        } else {
-            cb(null, safeFileName);
-        }
+        cb(null, safeFileName);
     }
 });
 
+// Фильтр для проверки допустимых типов файлов
 const fileFilter = (req: UserRequest, file: Express.Multer.File, cb: FileFilterCallback) => {
-    const validTypes = ['jpeg', 'jpg', 'png', 'gif', 'pdf', 'doc', 'docx', 'txt', 'mp4', 'avi', 'mov', 'mp3', 'wav', 'zip', 'rar'];
+    const validTypes = [
+        "jpeg", "jpg", "png", "gif",
+        "pdf", "doc", "docx", "txt",
+        "mp4", "avi", "mov",
+        "mp3", "wav",
+        "zip", "rar"
+    ];
+
     const extname = path.extname(file.originalname).toLowerCase().slice(1);
+
     if (validTypes.includes(extname)) {
         cb(null, true);
     } else {
-        cb(new Error('Недопустимый тип файла. Допустимы только изображения, документы, видео, аудиофайлы и архивы zip/rar.'));
+        console.error(`❌ Ошибка: Недопустимый тип файла: ${extname}`);
+        cb(new Error("Недопустимый тип файла. Допустимы изображения, документы, видео, аудиофайлы и архивы."));
     }
 };
 
+// Настройки Multer с поддержкой нескольких файлов
 export const upload = multer({
     storage,
-    limits: { fileSize: 120 * 1024 * 1024 },
+    limits: { fileSize: 120 * 1024 * 1024 }, // Ограничение в 120MB
     fileFilter
 });
+
+// Мидлвар для загрузки **нескольких файлов**
+export const uploadMiddleware = upload.array("files", 10); // Максимум 10 файлов за раз
 
 export { ensureDirectoryExists, getDestination };

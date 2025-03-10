@@ -1,8 +1,9 @@
-import { DataTypes, Model } from 'sequelize';
-import sequelize from '../config/db';
-import Chat from './Chat';
-import User from './User';
-import File from './File';
+import { DataTypes, Model } from "sequelize";
+import sequelize from "../config/db";
+import Chat from "./Chat";
+import User from "./User";
+import File from "./File";
+import MessageFiles from "./MessageFiles"; // ✅ Импортируем связь
 
 export class Message extends Model {
     public id!: number;
@@ -10,13 +11,14 @@ export class Message extends Model {
     public chatId!: number;
     public userId!: number;
     public timestamp!: string;
-    public fileId?: number;
-    public attachment?: File;
+    public fileIds?: number[] | null;
+    public attachments?: File[];
     public isEdited!: boolean;
     public unread!: boolean;
     public readonly createdAt!: Date;
     public readonly updatedAt!: Date;
     public isRead!: boolean;
+    public messageFiles?: MessageFiles[]; // ✅ Добавил `messageFiles`
 }
 
 Message.init(
@@ -29,7 +31,7 @@ Message.init(
             type: DataTypes.INTEGER,
             references: {
                 model: Chat,
-                key: 'id',
+                key: "id",
             },
             allowNull: false,
         },
@@ -37,16 +39,12 @@ Message.init(
             type: DataTypes.INTEGER,
             references: {
                 model: User,
-                key: 'id',
+                key: "id",
             },
             allowNull: false,
         },
-        fileId: {
-            type: DataTypes.INTEGER,
-            references: {
-                model: File,
-                key: 'id',
-            },
+        fileIds: {
+            type: DataTypes.JSON, // ✅ Теперь это массив файлов
             allowNull: true,
         },
         isEdited: {
@@ -69,9 +67,15 @@ Message.init(
     },
     {
         sequelize,
-        tableName: 'messages',
+        tableName: "messages",
         timestamps: true,
     }
 );
+
+// 🔹 Добавляем связи
+Message.hasMany(MessageFiles, { foreignKey: "messageId", as: "messageFiles" });
+
+// ⬇️ Указываем связь MessageFiles с File
+MessageFiles.belongsTo(File, { foreignKey: "fileId", as: "file" });
 
 export default Message;

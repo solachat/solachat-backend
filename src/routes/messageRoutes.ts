@@ -12,9 +12,14 @@ import { uploadFileController } from "../controllers/fileController";
 const router = Router();
 
 
-router.post('/:chatId/upload', authenticateToken, upload.single('file'), uploadFileController);
+router.post('/:chatId/upload', authenticateToken, upload.single('files'), uploadFileController);
 
-router.post('/:chatId', authenticateToken, upload.fields([{ name: 'file', maxCount: 5 }]), sendMessageController);
+router.post(
+    "/:chatId",
+    authenticateToken,
+    upload.fields([{ name: "files", maxCount: 10 }]),
+    sendMessageController
+);
 
 router.get('/:chatId', authenticateToken, getMessagesController);
 

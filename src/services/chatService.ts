@@ -3,10 +3,11 @@ import User from '../models/User';
 import Message from '../models/Message';
 import {Op, Sequelize} from 'sequelize';
 import { decryptMessage } from '../encryption/messageEncryption';
-import file from "../models/File";
+import File from "../models/File";
 import fs from "fs";
 import UserChats from "../models/UserChats";
 import redisClient from "../config/redisClient";
+import MessageFiles from "../models/MessageFiles";
 
 const CHAT_CACHE_EXPIRY = 60 * 5;
 const isProduction = process.env.NODE_ENV === "production";
@@ -154,6 +155,36 @@ export const getChatById = async (chatId: number) => {
     }
 };
 
+const getMessageAttachments = async (messageId: number, fileIds?: number[] | null) => {
+    let attachments: any[] = [];
+
+    // 1️⃣ Загружаем файлы из message_files
+    const linkedFiles = await MessageFiles.findAll({
+        where: { messageId },
+        include: [{ model: File, as: "file" }], // ✅ Указываем alias "file"
+    });
+
+    if (linkedFiles.length > 0) {
+        attachments = linkedFiles
+            .map((link) => (link.getDataValue("file") ? link.getDataValue("file").toJSON() : null)) // ✅ Исправленный доступ
+            .filter((f) => f !== null);
+    }
+
+    // 2️⃣ Если есть fileIds в JSON, загружаем файлы
+    if (fileIds && fileIds.length > 0) {
+        const jsonFiles = await File.findAll({
+            where: { id: { [Op.in]: fileIds } },
+        });
+
+        attachments = [...attachments, ...jsonFiles.map((f) => f.toJSON())];
+    }
+
+    return attachments;
+};
+
+
+
+
 export const getChatsForUser = async (userId: number) => {
     try {
         const cacheKey = `userChats:${userId}`;
@@ -161,17 +192,7 @@ export const getChatsForUser = async (userId: number) => {
 
         if (cachedChats) {
             console.log(`📩 Загружены чаты из кэша для userId=${userId}`);
-            let chats = JSON.parse(cachedChats);
-
-            for (const chat of chats) {
-                for (const message of chat.messages) {
-                    if (message.fileId && !message.attachment) {
-                        message.attachment = await handleFileAttachment(message.fileId);
-                    }
-                }
-            }
-
-            return chats;
+            return JSON.parse(cachedChats);
         }
 
         console.log(`🔄 Чаты для userId=${userId} не найдены в кэше, загружаем из базы...`);
@@ -187,10 +208,14 @@ export const getChatsForUser = async (userId: number) => {
                 {
                     model: Message,
                     as: 'messages',
-                    attributes: ['id', 'content', 'fileId', 'createdAt', 'userId', 'isEdited', 'unread', 'isRead'],
+                    attributes: ['id', 'content', 'fileIds', 'createdAt', 'userId', 'isEdited', 'unread', 'isRead'],
                     include: [
                         { model: User, as: 'user', attributes: ['username', 'public_key', 'avatar', 'lastOnline', 'online'] },
-                        { model: file, as: 'attachment', attributes: ['id', 'fileName', 'filePath'] },
+                        {
+                            model: MessageFiles,
+                            as: 'messageFiles',
+                            include: [{ model: File, as: 'file' }],
+                        },
                     ],
                 },
             ],
@@ -202,95 +227,47 @@ export const getChatsForUser = async (userId: number) => {
             return [];
         }
 
-        const userChats = chats.filter(chat => chat.users?.some(user => user.id === userId));
+        // 🔄 Загружаем сообщения с файлами
+        const resultChats = await Promise.all(
+            chats.map(async (chat) => {
+                let messages = chat.messages ? chat.messages.map(async (message) => {
+                    let decryptedContent = message.content;
 
-        const resultChats = await Promise.all(userChats.map(async (chat) => {
-            const messageCacheKey = `chat:${chat.id}:messages`;
-            let messages: Message[] = [];
-
-            const cachedMessages = await redisClient.get(messageCacheKey);
-            if (cachedMessages) {
-                try {
-                    const parsedMessages = JSON.parse(cachedMessages);
-                    if (Array.isArray(parsedMessages)) {
-                        messages = parsedMessages.map((msg: any) => Object.assign(new Message(), msg)); // ✅ Исправлено
-                    }
-                } catch (error) {
-                    console.error("❌ Ошибка при разборе кэша сообщений:", error);
-                }
-            }
-
-            // Если сообщений нет в кэше, загружаем из базы
-            if (messages.length === 0) {
-                console.log(`🔄 Загружаем сообщения из БД для чата ID=${chat.id}`);
-                const dbMessages = await Message.findAll({
-                    where: { chatId: chat.id },
-                    attributes: ['id', 'content', 'fileId', 'createdAt', 'userId', 'isEdited', 'unread', 'isRead'],
-                    include: [
-                        { model: User, as: 'user', attributes: ['username', 'public_key', 'avatar', 'lastOnline', 'online'] },
-                        { model: file, as: 'attachment', attributes: ['id', 'fileName', 'filePath'] },
-                    ],
-                    order: [['createdAt', 'ASC']], // сообщения отсортированы от старых к новым
-                });
-
-                messages = await Promise.all(dbMessages.map(async (message) => {
-                    let decryptedContent = '';
-                    try {
-                        decryptedContent = decryptMessage(JSON.parse(message.content));
-                    } catch (error) {
-                        console.error('❌ Ошибка расшифровки сообщения:', error);
-                    }
-
-                    let attachment = message.attachment ? message.attachment.toJSON() : null;
-                    if (message.fileId && !attachment) {
-                        attachment = await handleFileAttachment(message.fileId);
-                    }
-
-                    return Object.assign(new Message(), { // ✅ Исправлено
+                    const decryptedMessages = chat.messages?.map((message: Message) => ({
                         ...message.toJSON(),
-                        content: decryptedContent,
-                        attachment,
-                    });
-                }));
+                        content: decryptMessage(JSON.parse(message.content))
+                    }));
 
-                await redisClient.setEx(messageCacheKey, 300, JSON.stringify(messages));
-            }
+                    const attachments = message.messageFiles
+                        ? message.messageFiles.map((fileLink) => fileLink.getDataValue('file'))
+                        : [];
 
-            return {
-                ...chat.toJSON(),
-                chatName: chat.isGroup ? chat.name : chat.users?.find(u => u.id !== userId)?.username || 'Unknown',
-                users: (chat.users ?? []).map(user => ({
-                    id: user.id,
-                    public_key: user.public_key,
-                    avatar: user.avatar,
-                    online: user.online,
-                    lastOnline: user.lastOnline,
-                    verified: user.verified,
-                    role: (user as any).UserChats?.role || 'member',
-                })),
-                messages,
-            };
-        }));
+                    return {
+                        ...message.toJSON(),
+                        content: decryptedMessages,
+                        attachments,
+                    };
+                }) : [];
 
-        resultChats.sort((a: any, b: any) => {
-            const aLastDate = a.messages.length
-                ? new Date(a.messages[a.messages.length - 1].createdAt ?? a.updatedAt)
-                : new Date(a.updatedAt);
-            const bLastDate = b.messages.length
-                ? new Date(b.messages[b.messages.length - 1].createdAt ?? b.updatedAt)
-                : new Date(b.updatedAt);
-            return bLastDate.getTime() - aLastDate.getTime();
-        });
+                return {
+                    ...chat.toJSON(),
+                    messages,
+                };
+            })
+        );
 
         await redisClient.setEx(cacheKey, 300, JSON.stringify(resultChats));
 
         console.log(`📩 Успешно загружены чаты для userId=${userId}, всего: ${resultChats.length}`);
         return resultChats;
     } catch (error) {
-        console.error('❌ Ошибка при получении чатов для пользователя:', error);
-        throw new Error('Не удалось получить чаты для пользователя');
+        console.error("❌ Ошибка при получении чатов для пользователя:", error);
+        throw new Error("Не удалось получить чаты для пользователя");
     }
 };
+
+
+
 
 
 const normalizeFilePath = (filePath: string): string => {
@@ -316,7 +293,7 @@ const handleFileAttachment = async (fileId: number) => {
         }
 
         console.log(`🔍 Поиск файла ID=${fileId} в БД...`);
-        const fileRecord = await file.findOne({ where: { id: fileId } });
+        const fileRecord = await File.findOne({ where: { id: fileId } });
 
         if (!fileRecord) {
             console.error(`❌ Файл не найден в БД: ID ${fileId}`);
@@ -367,25 +344,35 @@ export const deleteChat = async (chatId: number, userId: number, userRole: strin
 
         const messages = await Message.findAll({ where: { chatId } });
 
-        await Promise.all(messages.map(async message => {
-            if (message.fileId) {
-                const fileRecord = await file.findByPk(message.fileId);
-                if (fileRecord) {
-                    fs.unlinkSync(fileRecord.filePath);
+        await Promise.all(messages.map(async (message) => {
+            if (message.fileIds && Array.isArray(message.fileIds)) {
+                // 🔥 Фикс: загружаем все файлы одним запросом
+                const fileRecords = await File.findAll({
+                    where: { id: { [Op.in]: message.fileIds } },
+                });
+
+                for (const fileRecord of fileRecords) {
+                    try {
+                        fs.unlinkSync(fileRecord.filePath);
+                    } catch (err) {
+                        console.error(`❌ Ошибка при удалении файла ${fileRecord.filePath}:`, err);
+                    }
                     await fileRecord.destroy();
                 }
             }
         }));
 
         await Message.destroy({ where: { chatId } });
-        await file.destroy({ where: { chatId } });
+        await File.destroy({ where: { chatId } });
 
         await Chat.destroy({ where: { id: chatId } });
 
     } catch (error) {
+        console.error("❌ Ошибка при удалении чата:", error);
         throw new Error('Не удалось удалить чат');
     }
-}
+};
+
 
 export const assignRole = async (chatId: number, userId: number, role: 'admin' | 'member') => {
     const userChat = await UserChats.findOne({ where: { chatId, userId } });

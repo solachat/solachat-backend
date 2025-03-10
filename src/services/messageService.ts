@@ -7,30 +7,46 @@ import {broadcastToClients} from "../controllers/messageController";
 
 const CHAT_CACHE_EXPIRY = 60 * 5;
 
+import MessageFiles from "../models/MessageFiles";
+
 export const createMessage = async (
     userId: number,
     chatId: number,
     content: string,
-    fileId: number | null,
+    fileIds: number[] | null // 🔥 Массив файлов
 ) => {
     const encryptedContent = encryptMessage(content);
-
     const timestamp = new Date().toISOString();
 
+    // 🔥 Создаем сообщение
     const message = await Message.create({
         chatId,
         userId,
         content: JSON.stringify(encryptedContent),
-        fileId: fileId || undefined,
         timestamp,
+        fileIds,
         createdAt: timestamp,
     });
 
-    const userChatsCacheKey = `userChats:${userId}`;
-    await redisClient.del(userChatsCacheKey);
+    // 🔥 Добавляем файлы к сообщению
+    if (fileIds && fileIds.length > 0) {
+        await Promise.all(
+            fileIds.map(async (fileId) => {
+                await MessageFiles.create({
+                    messageId: message.id,
+                    fileId,
+                });
+            })
+        );
+    }
+
+    // 🔥 Чистим кэш сообщений
+    await redisClient.del(`userChats:${userId}`);
 
     return message;
 };
+
+
 
 export const getMessages = async (chatId: number) => {
     const cacheKey = `chat:${chatId}:messages`;
