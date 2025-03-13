@@ -62,13 +62,13 @@ export const initWebSocketServer = (server: any) => {
                 }
             }
 
+            broadcastClients({ type: 'USER_CONNECTED', publicKey });
             user.online = true;
             await redisClient.setEx(`user:${publicKey}`, 300, JSON.stringify(user));
             await updateUserStatus(publicKey, true);
 
             connectedUsers.push({ ws, publicKey });
 
-            broadcastClients({ type: 'USER_CONNECTED', publicKey });
 
             console.log(`✅ User ${publicKey} connected`);
 
@@ -105,19 +105,24 @@ const removeUserConnection = async (publicKey: string) => {
         }
 
         try {
+            const lastOnline = new Date().toISOString();
             let userData = await redisClient.get(`user:${publicKey}`);
+            let user;
             if (userData) {
-                let user = JSON.parse(userData);
-                user.online = false;
-                user.lastOnline = new Date();
-                await redisClient.setEx(`user:${publicKey}`, 300, JSON.stringify(user));
+                user = JSON.parse(userData);
+            } else {
+                user = { publicKey };
             }
+            user.online = false;
+            user.lastOnline = lastOnline;
+            await redisClient.setEx(`user:${publicKey}`, 300, JSON.stringify(user));
 
             await updateUserStatus(publicKey, false);
 
-            broadcastClients({ type: 'USER_DISCONNECTED', publicKey });
+            broadcastClients({ type: 'USER_DISCONNECTED', publicKey, lastOnline });
         } catch (error) {
             console.error(`Failed to update user status to offline for publicKey: ${publicKey}`, error);
         }
     }
 };
+

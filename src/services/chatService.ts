@@ -1,17 +1,16 @@
 import Chat from '../models/Chat';
 import User from '../models/User';
 import Message from '../models/Message';
-import { Op } from 'sequelize';
+import {Op, Sequelize} from 'sequelize';
 import { decryptMessage } from '../encryption/messageEncryption';
 import file from "../models/File";
 import fs from "fs";
 import UserChats from "../models/UserChats";
-import { decryptFile } from '../encryption/fileEncryption';
-import path from "path";
 import redisClient from "../config/redisClient";
 
 const CHAT_CACHE_EXPIRY = 60 * 5;
-const MESSAGE_CACHE_EXPIRY = 60 * 3;
+const isProduction = process.env.NODE_ENV === "production";
+const BASE_URL = isProduction ? process.env.BASE_URL || "https://example.com" : "http://localhost:4000";
 
 const findUsersByIds = async (userIds: number[]) => {
     const users = await User.findAll({ where: { id: userIds } });
@@ -35,46 +34,59 @@ const upsertUserChat = async (chatId: number, userId: number, role: 'owner' | 'm
 
 export const createPrivateChat = async (user1Id: number, user2Id: number) => {
     try {
-        if (user1Id === user2Id) {
-            const favoriteChat = await Chat.findOne({
-                where: { isGroup: false },
-                include: [
-                    {
-                        model: User,
-                        as: 'users',
-                        where: { id: user1Id },
-                        through: { attributes: [] },
-                    },
-                ],
-            });
-
-            if (favoriteChat) return favoriteChat;
+        if (!user1Id || !user2Id || user1Id === -1 || user2Id === -1) {
+            throw new Error("❌ Ошибка: Некорректный userId при создании чата!");
         }
 
-        const chats = await Chat.findAll({
+        if (user1Id === user2Id) {
+            throw new Error("❌ Нельзя создать чат с самим собой!");
+        }
+
+        console.log(`🔎 Проверяем, существует ли чат между user1Id=${user1Id} и user2Id=${user2Id}`);
+
+        const existingChat = await Chat.findOne({
             where: { isGroup: false },
-            include: [{
-                model: User,
-                as: 'users',
-                where: { id: { [Op.in]: [user1Id, user2Id] } },
-                through: { attributes: [] },
-            }]
+            include: [
+                {
+                    model: UserChats,
+                    as: "userChats",
+                    attributes: ["chatId"],
+                    where: {
+                        userId: { [Op.in]: [user1Id, user2Id] },
+                    },
+                },
+            ],
         });
 
-        const existingChat = chats.find(chat => {
-            const userIds = chat.users?.map(user => user.id) || [];
-            return userIds.includes(user1Id) && userIds.includes(user2Id) && userIds.length === 2;
-        });
+        if (existingChat) {
+            const chatUsers = await UserChats.findAll({
+                where: { chatId: existingChat.id },
+                attributes: ["userId"],
+            });
 
-        if (existingChat) return existingChat;
+            const chatUserIds = chatUsers.map(user => user.userId);
+
+            if (chatUserIds.includes(user1Id) && chatUserIds.includes(user2Id) && chatUserIds.length === 2) {
+                console.log(`✅ Найден существующий чат (ID=${existingChat.id}) между ${user1Id} и ${user2Id}`);
+                return existingChat;
+            }
+        }
+
+        console.log(`❌ Чат не найден, создаём новый между ${user1Id} и ${user2Id}`);
 
         const newChat = await Chat.create({ isGroup: false, isFavorite: false });
-        const users = await findUsersByIds([user1Id, user2Id]);
-        await newChat.addUsers(users);
+
+        await UserChats.bulkCreate([
+            { chatId: newChat.id, userId: user1Id },
+            { chatId: newChat.id, userId: user2Id },
+        ]);
+
+        console.log(`🆕 Новый чат создан: ID=${newChat.id}`);
 
         return newChat;
     } catch (error) {
-        throw new Error('Не удалось создать приватный чат');
+        console.error("❌ Ошибка при создании приватного чата:", error);
+        throw new Error("Не удалось создать приватный чат");
     }
 };
 
@@ -106,7 +118,7 @@ export const getChatById = async (chatId: number) => {
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'public_key', 'avatar', 'online', 'verified'],
+                    attributes: ['id', 'username', 'public_key', 'avatar', 'online', 'verified', 'online', 'lastOnline'],
                     through: { attributes: [] }
                 },
                 {
@@ -117,7 +129,7 @@ export const getChatById = async (chatId: number) => {
                         {
                             model: User,
                             as: 'user',
-                            attributes: ['id', 'username', 'public_key', 'avatar'],
+                            attributes: ['id', 'username', 'public_key', 'avatar', 'online', 'lastOnline'],
                         }
                     ]
                 }
@@ -148,10 +160,6 @@ export const getChatsForUser = async (userId: number) => {
         const cachedChats = await redisClient.get(cacheKey);
 
         if (cachedChats) {
-<<<<<<< Updated upstream
-            console.log(`💾 Отдаем чаты пользователя ${userId} из Redis`);
-            const parsedChats = JSON.parse(cachedChats);
-=======
             console.log(`📩 Загружены чаты из кэша для userId=${userId}`);
             let chats = JSON.parse(cachedChats);
 
@@ -165,25 +173,15 @@ export const getChatsForUser = async (userId: number) => {
 
             return chats;
         }
->>>>>>> Stashed changes
 
-            for (const chat of parsedChats) {
-                for (const message of chat.messages) {
-                    if (message.fileId && !message.attachment) {
-                        message.attachment = await handleFileAttachment(message.fileId);
-                    }
-                }
-            }
-
-            return parsedChats;
-        }
+        console.log(`🔄 Чаты для userId=${userId} не найдены в кэше, загружаем из базы...`);
 
         const chats = await Chat.findAll({
             include: [
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'public_key', 'avatar', 'online', 'verified'],
+                    attributes: ['id', 'username', 'public_key', 'avatar', 'online', 'verified', 'lastOnline'],
                     through: { attributes: ['role'] },
                 },
                 {
@@ -191,13 +189,8 @@ export const getChatsForUser = async (userId: number) => {
                     as: 'messages',
                     attributes: ['id', 'content', 'fileId', 'createdAt', 'userId', 'isEdited', 'unread', 'isRead'],
                     include: [
-<<<<<<< Updated upstream
-                        { model: User, as: 'user', attributes: ['username', 'public_key', 'avatar'] },
-                        { model: file, as: 'attachment', attributes: ['fileName', 'filePath'] },
-=======
                         { model: User, as: 'user', attributes: ['username', 'public_key', 'avatar', 'lastOnline', 'online'] },
                         { model: file, as: 'attachment', attributes: ['id', 'fileName', 'filePath'] },
->>>>>>> Stashed changes
                     ],
                 },
             ],
@@ -205,34 +198,10 @@ export const getChatsForUser = async (userId: number) => {
         });
 
         if (!chats || chats.length === 0) {
+            console.log(`⚠️ У пользователя userId=${userId} нет чатов`);
             return [];
         }
 
-<<<<<<< Updated upstream
-        const userChats = chats.filter(chat => chat.users && chat.users.some(user => user.id === userId));
-
-        const resultChats = await Promise.all(userChats.map(async (chat) => {
-            const messages = chat.messages
-                ? await Promise.all(chat.messages
-                    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-                    .map(async (message: Message) => {
-                        let decryptedContent = '';
-                        let attachment = null;
-
-                        try {
-                            decryptedContent = decryptMessage(JSON.parse(message.content));
-                        } catch (error) {
-                            console.error('Ошибка расшифровки сообщения:', error);
-                        }
-
-                        if (message.fileId) {
-                            attachment = await handleFileAttachment(message.fileId);
-                        }
-
-                        return { ...message.toJSON(), content: decryptedContent, attachment };
-                    }))
-                : [];
-=======
         const userChats = chats.filter(chat => chat.users?.some(user => user.id === userId));
 
         const resultChats = await Promise.all(userChats.map(async (chat) => {
@@ -312,42 +281,17 @@ export const getChatsForUser = async (userId: number) => {
                 : new Date(b.updatedAt);
             return bLastDate.getTime() - aLastDate.getTime();
         });
->>>>>>> Stashed changes
 
-            return {
-                ...chat.toJSON(),
-                chatName: chat.isGroup
-                    ? chat.name
-                    : chat.users?.find(u => u.id !== userId)?.username || 'Unknown',
-                users: (chat.users || []).map(user => ({
-                    id: user.id,
-                    public_key: user.public_key,
-                    avatar: user.avatar,
-                    online: user.online,
-                    verified: user.verified,
-                    role: (user as any).UserChats?.role || 'member',
-                })),
-                messages,
-            };
-        }));
+        await redisClient.setEx(cacheKey, 300, JSON.stringify(resultChats));
 
-        // Теперь всегда сохраняем ТОЛЬКО полные данные:
-        await redisClient.setEx(cacheKey, CHAT_CACHE_EXPIRY, JSON.stringify(resultChats));
-
+        console.log(`📩 Успешно загружены чаты для userId=${userId}, всего: ${resultChats.length}`);
         return resultChats;
     } catch (error) {
-<<<<<<< Updated upstream
-        console.error('Ошибка при получении чатов для пользователя:', error);
-=======
         console.error('❌ Ошибка при получении чатов для пользователя:', error);
->>>>>>> Stashed changes
         throw new Error('Не удалось получить чаты для пользователя');
     }
 };
 
-<<<<<<< Updated upstream
-
-=======
 const normalizeFilePath = (filePath: string): string => {
     filePath = filePath.replace(/\\/g, "/");
 
@@ -357,67 +301,67 @@ const normalizeFilePath = (filePath: string): string => {
 
     return filePath;
 };
->>>>>>> Stashed changes
 
 const handleFileAttachment = async (fileId: number) => {
     const cacheKey = `file:${fileId}`;
 
     try {
-        // Проверяем Redis
         const cachedFile = await redisClient.get(cacheKey);
         if (cachedFile) {
-            console.log(`💾 Файл ${fileId} найден в Redis`);
-            return JSON.parse(cachedFile);
+            const parsedFile = JSON.parse(cachedFile);
+            parsedFile.filePath = normalizeFilePath(parsedFile.filePath);
+            console.log(`💾 Файл ${fileId} найден в Redis:`, parsedFile);
+            return parsedFile;
         }
 
-<<<<<<< Updated upstream
-        // Файл не найден в Redis – ищем в базе данных информацию
-=======
         console.log(`🔍 Поиск файла ID=${fileId} в БД...`);
->>>>>>> Stashed changes
         const fileRecord = await file.findOne({ where: { id: fileId } });
 
         if (!fileRecord) {
-            console.error(`❌ Файл не найден в базе: ID ${fileId}`);
+            console.error(`❌ Файл не найден в БД: ID ${fileId}`);
             return null;
         }
 
-        const encryptedFilePath = fileRecord.filePath;
-        const decryptedFilePath = encryptedFilePath.replace('.enc', '');
-
-        if (!fs.existsSync(encryptedFilePath)) {
-            console.error(`❌ Зашифрованный файл не найден: ${encryptedFilePath}`);
-            return { fileName: fileRecord.fileName, filePath: encryptedFilePath };
-        }
-
-        const encryptedBuffer = fs.readFileSync(encryptedFilePath);
-        console.log(`🔐 Расшифровка файла: ${encryptedFilePath}`);
-        const decryptedBuffer = await decryptFile(encryptedBuffer);
-
-        fs.writeFileSync(decryptedFilePath, decryptedBuffer);
-        console.log(`✅ Файл успешно расшифрован: ${decryptedFilePath}`);
+        console.log(`✅ Файл найден в БД:`, fileRecord);
 
         const fileData = {
+            id: fileRecord.id,
             fileName: fileRecord.fileName,
-            filePath: decryptedFilePath,
+            filePath: normalizeFilePath(fileRecord.filePath),
         };
 
-        await redisClient.setEx(`file:${fileId}`, 3600, JSON.stringify(fileData));
-        console.log(`💾 Файл ${fileId} сохранен в Redis`);
+        console.log(`💾 Сохранение исправленного пути файла в Redis:`, fileData);
+        await redisClient.setEx(cacheKey, 3600, JSON.stringify(fileData));
 
         return fileData;
     } catch (error) {
-        console.error(`❌ Ошибка при обработке файла: ${(error as Error).message}`);
+        console.error(`❌ Ошибка при обработке файла ID ${fileId}: ${(error as Error).message}`);
         return null;
     }
 };
+
 
 
 export const deleteChat = async (chatId: number, userId: number, userRole: string, isGroup: boolean) => {
     try {
         if (isGroup && userRole === 'member') {
             await UserChats.destroy({ where: { userId, chatId } });
+
+            await redisClient.del(`userChats:${userId}`);
+
             return;
+        }
+
+        const chatUsers = await UserChats.findAll({ where: { chatId } });
+
+        const userIds = chatUsers.map(userChat => userChat.userId);
+
+        await UserChats.destroy({ where: { chatId } });
+
+        if (userIds.length > 0) {
+            await Promise.all(userIds.map(async (userId) => {
+                await redisClient.del(`userChats:${userId}`);
+            }));
         }
 
         const messages = await Message.findAll({ where: { chatId } });
@@ -434,19 +378,13 @@ export const deleteChat = async (chatId: number, userId: number, userRole: strin
 
         await Message.destroy({ where: { chatId } });
         await file.destroy({ where: { chatId } });
-<<<<<<< Updated upstream
-=======
 
->>>>>>> Stashed changes
         await Chat.destroy({ where: { id: chatId } });
+
     } catch (error) {
         throw new Error('Не удалось удалить чат');
     }
-<<<<<<< Updated upstream
-};
-=======
 }
->>>>>>> Stashed changes
 
 export const assignRole = async (chatId: number, userId: number, role: 'admin' | 'member') => {
     const userChat = await UserChats.findOne({ where: { chatId, userId } });
@@ -511,7 +449,7 @@ export const getChatWithMessages = async (chatId: number, userId: number) => {
                 {
                     model: User,
                     as: 'users',
-                    attributes: ['id', 'username', 'avatar', 'verified'],
+                    attributes: ['id', 'username', 'avatar', 'verified', 'online', 'lastOnline'],
                     through: { attributes: [] },
                     where: { id: userId }
                 },

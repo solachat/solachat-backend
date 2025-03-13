@@ -6,14 +6,13 @@ import {
     updateMessageContent
 } from '../services/messageService';
 import { UserRequest } from '../types/types';
-import { wss } from '../websocket';
+import {connectedUsers, wss} from '../websocket';
+import WebSocket from 'ws';
 import { decryptMessage, encryptMessage } from "../encryption/messageEncryption";
 import User from "../models/User";
 import Chat from "../models/Chat";
 import {createFile} from "../services/fileService";
 import Message from "../models/Message";
-<<<<<<< Updated upstream
-=======
 import {fileQueue} from "../services/fileQueue";
 import redisClient from "../config/redisClient";
 import {callCreatePrivateChatController} from "../utils/utils";
@@ -30,7 +29,6 @@ const generateUniqueFileName = (originalName: string) => {
 
 const isProduction = process.env.NODE_ENV === "production";
 const BASE_URL = isProduction ? process.env.BASE_URL || "https://example.com" : "http://localhost:4000";
->>>>>>> Stashed changes
 
 export const broadcastToClients = (type: string, payload: object) => {
     const messagePayload = JSON.stringify({ type, ...payload });
@@ -41,71 +39,49 @@ export const broadcastToClients = (type: string, payload: object) => {
     });
 };
 
-export const sendMessageController = async (req: UserRequest, res: Response) => {
+
+const broadcastToChatUsers = async (chatId: number, message: any) => {
+    try {
+        // Получаем участников чата
+        const chat = await Chat.findByPk(chatId, {
+            include: [{ model: User, as: 'users', attributes: ['public_key'] }]
+        });
+
+        if (!chat || !chat.users) {
+            console.error(`❌ Ошибка: Чат ${chatId} не найден или пуст.`);
+            return;
+        }
+
+        const chatUserPublicKeys = chat.users.map(user => user.public_key);
+
+        // Проверяем, есть ли WebSocket-соединение
+        if (!wss) {
+            console.error(`❌ Ошибка: WebSocket сервер не инициализирован.`);
+            return;
+        }
+
+        // Отправляем только участникам чата
+        connectedUsers.forEach(user => {
+            if (chatUserPublicKeys.includes(user.publicKey) && user.ws.readyState === WebSocket.OPEN) {
+                user.ws.send(JSON.stringify(message));
+            }
+        });
+
+        console.log(`📢 Сообщение отправлено участникам чата ${chatId}`);
+    } catch (error) {
+        console.error(`❌ Ошибка при отправке WebSocket-сообщения для чата ${chatId}:`, error);
+    }
+};
+
+const normalizeFilePath = (filePath: string) => filePath.replace(/\\/g, "/");
+
+export const sendMessageController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
-<<<<<<< Updated upstream
-    const { content } = req.body;
-=======
     const { content, tempId, compressImage } = req.body;
->>>>>>> Stashed changes
     let fileId: number | null = null;
     let decryptedFilePath: string | null = null;
 
     try {
-<<<<<<< Updated upstream
-        res.status(202).json({ message: 'Message received, processing...' });
-
-        setImmediate(async () => {
-            console.time('Message Processing');
-
-            console.time('DB Query: User and Chat');
-            const [sender, chat] = await Promise.all([
-                User.findByPk(req.user!.id, { attributes: ['id', 'username', 'public_key', 'avatar', 'verified'] }),
-                Chat.findByPk(Number(chatId)),
-            ]);
-            console.timeEnd('DB Query: User and Chat');
-
-            const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-            if (files && files['file']) {
-                console.time('File Encryption and Save');
-                const file = files['file'][0];
-                const result = await createFile(file, req.user!.id, Number(chatId), true);
-                fileId = 'savedFile' in result ? result.savedFile.id : result.id;
-                decryptedFilePath = 'decryptedFilePath' in result ? result.decryptedFilePath : null;
-                console.timeEnd('File Encryption and Save');
-            }
-
-            console.time('DB Write: Message');
-            const message = await createMessage(
-                req.user!.id,
-                Number(chatId),
-                content || '',
-                fileId,
-                sender!
-            );
-            console.timeEnd('DB Write: Message');
-
-            console.time('Decrypt Message');
-            const decryptedMessageContent = content ? decryptMessage(JSON.parse(message.content)) : null;
-            console.timeEnd('Decrypt Message');
-
-            console.time('Broadcast Message');
-            broadcastToClients('newMessage', {
-                message: {
-                    ...message.toJSON(),
-                    content: decryptedMessageContent || null,
-                    attachment: fileId ? { fileName: files['file'][0].originalname, filePath: decryptedFilePath } : null,
-                    user: { id: sender!.id, username: sender!.username, avatar: sender!.avatar },
-                }
-            });
-            console.timeEnd('Broadcast Message');
-
-            console.timeEnd('Message Processing');
-        });
-    } catch (error) {
-        console.error('Ошибка при создании сообщения:', error);
-        res.status(500).json({ message: 'Ошибка при создании сообщения.' });
-=======
         console.log(`📩 Получен запрос на отправку сообщения в чат ID: ${chatId}`);
         console.log("Полученные данные:", req.body);
 
@@ -145,21 +121,23 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
                     const user1 = await User.findByPk(req.user!.id, {
                         attributes: [
                             "id",
+                            "username",
                             "public_key",
                             "avatar",
+                            "verified",
                             "online",
                             "lastOnline",
-                            "verified",
                         ],
                     });
                     const user2 = await User.findByPk(Number(chatId), {
                         attributes: [
                             "id",
+                            "username",
                             "public_key",
                             "avatar",
+                            "verified",
                             "online",
                             "lastOnline",
-                            "verified",
                         ],
                     });
 
@@ -309,32 +287,39 @@ export const sendMessageController = async (req: UserRequest, res: Response) => 
     } catch (error) {
         console.error("Ошибка при создании сообщения:", error);
         res.status(500).json({ message: "Ошибка при создании сообщения." });
->>>>>>> Stashed changes
     }
 };
-
 
 export const getMessagesController = async (req: Request, res: Response) => {
     const { chatId } = req.params;
 
     try {
+        const cacheKey = `chat:${chatId}:messages`;
+        const cachedMessages = await redisClient.get(cacheKey);
+
+        if (cachedMessages) {
+            console.log(`💾 Отдаем сообщения чата ${chatId} из Redis`);
+            return res.status(200).json(JSON.parse(cachedMessages));
+        }
+
         const messages = await getMessages(Number(chatId));
 
         const decryptedMessages = messages.map((message: Message) => {
-            const messageData = typeof message.toJSON === 'function' ? message.toJSON() : message;
-
             return {
-                ...messageData,
+                ...message.toJSON(),
                 content: message.content ? decryptMessage(JSON.parse(message.content)) : null
             };
         });
+
+        await redisClient.setEx(cacheKey, 600, JSON.stringify(decryptedMessages)); // Сохраняем в кеш
 
         res.status(200).json(decryptedMessages);
     } catch (error) {
         console.error('Error getting messages:', error);
         res.status(500).json({ message: 'Ошибка при получении сообщений.' });
     }
-}
+};
+
 
 export const editMessageController = async (req: UserRequest, res: Response) => {
     const { messageId } = req.params;
@@ -353,17 +338,28 @@ export const editMessageController = async (req: UserRequest, res: Response) => 
         }
 
         const encryptedContent = encryptMessage(content);
-        await updateMessageContent(Number(messageId), { content: JSON.stringify(encryptedContent), isEdited: true });
 
-        broadcastToClients('editMessage', {
+        await updateMessageContent(
+            Number(messageId),
+            { content: JSON.stringify(encryptedContent), isEdited: true },
+            req.user!.id,
+            content
+        );
+
+        // ❗️ Удаляем кеш сообщений чата
+        await redisClient.del(`chat:${message.chatId}:messages`);
+
+        await broadcastToChatUsers(message.chatId, {
+            type: 'editMessage',
             message: {
                 id: message.id,
-                content: decryptMessage(encryptedContent),
+                content: content,
                 isEdited: true,
                 chatId: message.chatId,
                 updatedAt: new Date().toISOString(),
             }
         });
+
 
         res.status(200).json({ message: 'Сообщение успешно обновлено.' });
     } catch (error) {
@@ -372,13 +368,21 @@ export const editMessageController = async (req: UserRequest, res: Response) => 
     }
 };
 
+
 export const deleteMessageController = async (req: UserRequest, res: Response) => {
     const { messageId } = req.params;
 
     try {
+        const message = await getMessageById(Number(messageId));
+        if (!message) return res.status(404).json({ message: 'Сообщение не найдено.' });
+
         await deleteMessageById(Number(messageId), req.user!.id);
 
-        broadcastToClients('deleteMessage', {
+        // ❗️ Очищаем кеш сообщений чата
+        await redisClient.del(`chat:${message.chatId}:messages`);
+
+        await broadcastToChatUsers(message.chatId, {
+            type: 'deleteMessage',
             messageId: Number(messageId),
         });
 
@@ -398,6 +402,7 @@ export const deleteMessageController = async (req: UserRequest, res: Response) =
     }
 };
 
+
 export const markMessageAsReadController = async (req: UserRequest, res: Response) => {
     console.log('Received params:', req.params);
     console.log('Received body:', req.body);
@@ -413,9 +418,13 @@ export const markMessageAsReadController = async (req: UserRequest, res: Respons
 
         await Message.update({ isRead }, { where: { id: messageIdNumber } });
 
-        broadcastToClients('messageRead', {
+        await redisClient.del(`chat:${message.chatId}:messages`);
+
+        await broadcastToChatUsers(message.chatId, {
+            type: 'messageRead',
             messageId: message.id,
         });
+
 
         res.status(200).json({ message: 'Статус прочтения обновлён.' });
     } catch (error) {
