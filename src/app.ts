@@ -11,7 +11,12 @@ import { initWebSocketServer } from './websocket';
 import './models/associations';
 import downloadRoutes from './routes/fileRoutes';
 import fileRoutes from './routes/fileRoutes';
+<<<<<<< Updated upstream
 import redisClient from './config/redisClient';
+=======
+import sessionRoutes from "./routes/sessionRoutes";
+import mixerRoutes from "./routes/mixerRoutes";
+>>>>>>> Stashed changes
 
 const app = express();
 
@@ -22,6 +27,7 @@ const server = http.createServer(app);
 
 initWebSocketServer(server);
 
+app.use(cors({ origin: 'http://localhost:3000' }));
 app.use('/uploads', express.static(uploadsPath, {
     setHeaders: (res, filePath) => {
         if (filePath.endsWith('.mp4')) {
@@ -39,6 +45,11 @@ app.use(express.json());
 
 // app.use('/api/calls', callRoutes);
 app.use('/api', walletRoutes);
+<<<<<<< Updated upstream
+=======
+app.use('/api/mixer', mixerRoutes)
+app.use("/api/session", sessionRoutes);
+>>>>>>> Stashed changes
 app.use('/api/users', userRoutes);
 app.use('/api/tokens', tokenRoutes);
 app.use('/api/chats', chatRoutes);
