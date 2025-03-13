@@ -55,7 +55,10 @@ export const createMessage = async (
     return message;
 };
 
+<<<<<<< Updated upstream
 
+=======
+>>>>>>> Stashed changes
 export const getMessages = async (chatId: number) => {
     const cacheKey = `chat:${chatId}:messages`;
 

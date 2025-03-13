@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import {createUser, getUserById, getUserByPublicKey, updateUserStatus} from '../services/userService';
+import {createUser,  getUserByPublicKey, updateUserStatus} from '../services/userService';
 import { UserRequest } from '../types/types';
 import User from '../models/User';
 import logger from '../utils/logger';
@@ -9,14 +9,11 @@ import fs from 'fs';
 import path from 'path';
 import { Op } from "sequelize";
 import {ensureDirectoryExists, getDestination} from "../config/uploadConfig";
-import { getSolanaBalance, getTokenBalance } from "../services/solanaService";
 import nacl from 'tweetnacl';
 import base58 from 'bs58';
 import { authenticator } from 'otplib';
 import { ethers } from 'ethers';
 import { isSolanaWallet, isEthereumWallet } from '../utils/walletUtils';
-import {getEthereumBalance} from "../services/ethereumService";
-import { v4 as uuidv4 } from 'uuid';
 import redisClient from "../config/redisClient";
 
 const secret = process.env.JWT_SECRET || 'your_default_secret';
@@ -197,6 +194,7 @@ export const getProfile = async (req: Request, res: Response) => {
 
         const isOwner = decoded.publicKey === user.public_key;
 
+<<<<<<< Updated upstream
         const { password, ...safeUserData } = user;
 
         const responseData: any = {
@@ -209,6 +207,30 @@ export const getProfile = async (req: Request, res: Response) => {
 
 
         res.json(responseData);
+=======
+        if (isOwner) {
+            const { password, ...safeUserData } = user;
+            res.json({
+                ...safeUserData,
+                avatar: user.avatar,
+                isOwner: true,
+                aboutMe: user.aboutMe,
+                public_key: user.sharePublicKey || isOwner ? user.public_key : undefined,
+            });
+        } else {
+            res.json({
+                avatar: user.avatar,
+                username: user.username,
+                aboutMe: user.aboutMe,
+                public_key: user.public_key,
+                verified: user.verified,
+                online: user.online,
+                lastLogin: user.lastLogin,
+                lastOnline: user.lastOnline,
+            });
+        }
+        return(user);
+>>>>>>> Stashed changes
     } catch (error) {
         console.error(`Profile fetch failed: ${error}`);
         res.status(401).json({ message: 'Invalid token' });

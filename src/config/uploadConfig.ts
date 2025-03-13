@@ -77,4 +77,9 @@ export const upload = multer({
     fileFilter
 });
 
+<<<<<<< Updated upstream
+=======
+export const uploadMiddleware = upload.array("files", 10);
+
+>>>>>>> Stashed changes
 export { ensureDirectoryExists, getDestination };
